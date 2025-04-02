@@ -1089,6 +1089,8 @@ MOQT Control Message {
 |-------|-----------------------------------------------------|
 | 0x5   | SUBSCRIBE_ERROR ({{message-subscribe-error}})       |
 |-------|-----------------------------------------------------|
+| 0xF   | PSID_ACK ({{message-psid-ack}})                     |
+|-------|-----------------------------------------------------|
 | 0xA   | UNSUBSCRIBE ({{message-unsubscribe}})               |
 |-------|-----------------------------------------------------|
 | 0x2   | SUBSCRIBE_UPDATE ({{message-subscribe-update}})     |
@@ -1326,6 +1328,17 @@ the `query` portion of the URI to the parameter.
 The MAX_REQUEST_ID parameter (Parameter Type 0x02) communicates an initial
 value for the Maximum Request ID to the receiving endpoint. The default
 value is 0, so if not specified, the peer MUST NOT send requests.
+
+#### MAX_EARLY_SUBSCRIPTION_DATA {#max-early-sub-data}
+
+The MAX_EARLY_SUBSCRIPTION_DATA parameter (Parameter Type 0x04) communicates the
+maximum amount of data a publisher can send on a subscription using a
+Publisher-Chosen Subscription ID ({{subscription-id}}) that has not been
+acknowledged on the control stream via PSID_ACK ({{message-psid-ack}}).  This
+limit includes the sum of all bytes sent on Subgroup streams including the
+SUBGROUP_HEADER.  Resetting a stream does not increase the limit.  The default
+is 0.  The limit does not apply to DATAGRAM and DATAGRAM_STATUS.  Publishers are
+not limited when using the Request Subscription ID in SUBGROUP_HEADER.
 
 ## GOAWAY {#message-goaway}
 
@@ -1628,6 +1641,28 @@ as defined below:
 
 * Invalid Range - The end of the SUBSCRIBE range is earlier than the beginning,
   or the end of the range has already been published.
+
+## PSID_ACK {#message-psid-ack}
+
+The subscriber sends a PSID_ACK control message to acknowledge the receipt of a
+SUBSCRIBE_OK message containing a valid Publisher-Chosen Subscription ID (see
+{{subscription-id}}).  Until the receipt of this message, the publisher is
+limited in how much data can be sent on Subgroup streams by
+MAX_EARLY_SUBSCRIPTION_DATA ({{max-early-sub-data}}).  The subscriber MUST send
+this message upon receiving a SUBSCRIBE_OK containing a PSID.
+
+~~~
+PSID_ACK Message
+{
+  Type (i) = 0xf,
+  Length (i),
+  Subscription ID (i)
+}
+~~~
+{: #moq-transport-psid-ack format title="MOQT PSID_ACK Message"}
+
+* Subscription ID: Either the Subscriber-Chosen or Publisher-Chosen Subscription
+  Identifier (see {{subscription-id}}) for the subscription begin acknowledged.
 
 
 ## SUBSCRIBE_UPDATE {#message-subscribe-update}
@@ -2734,11 +2769,13 @@ SUBGROUP_HEADER {
   to. If an endpoint receives a subgroup with a Subscription Request ID that
   does not correspond to a subscription it initiated, it MUST close the
   connection with a Protocol Violation.  If it receives a subgroup with an
-  unknown Publisher-Chosen Subscription Identifier, it MAY abandon the stream,
-  or choose to buffer it for a brief period to handle reordering with the
-  control message that establishes the PSID.  The endpoint SHOULD NOT release
-  stream flow control beyond the SUBGROUP_HEADER until the PSID has been
-  established.  TODO: talk about possible deadlocks.
+  unknown Publisher-Chosen Subscription Identifier, it MUST buffer up to the
+  value specified in MAX_EARLY_SUBSCRIPTION_DATA for a brief period to handle
+  reordering with the control message that establishes the PSID.  If the
+  endpoint receives more than MAX_EARLY_SUBSCRIPTION_DATA bytes with an unknown
+  PSID, it MUST close the session with `Protocol Violation`.  The endpoint
+  SHOULD NOT release stream flow control beyond the SUBGROUP_HEADER until the
+  PSID has been established.  TODO: talk about possible deadlocks.
 
 All Objects received on a stream opened with `SUBGROUP_HEADER` have an
 `Object Forwarding Preference` = `Subgroup`.
