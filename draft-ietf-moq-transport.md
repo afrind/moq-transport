@@ -442,6 +442,28 @@ constrain the information in these fields, for example by restricting them to
 UTF-8. Any specification that does needs to specify the canonicalization into
 the bytes in the Track Namespace or Track Name such that exact comparison works.
 
+### Subscription Identifiers {#subscription-id}
+
+To optimize wire efficiency, some MoQT messages refer to a track by a numeric
+identifier, rather than the Full Track Name. When a subscriber makes a SUBSCRIBE
+or FETCH request for a track, it associates a Request ID with the request.  The
+corresponding Subscription Request ID is equal to `Request ID << 1`.
+
+MoQT also allows the publisher to choose an identifier for each track, called
+the Publisher-Chosen Subscription ID (PSID). PSIDs are odd and have a maximum
+value of 2^61-1. The same identifier MUST NOT be assigned multiple tracks in the
+same session.  PSIDs are required when the publisher initiates the subscription
+(TODO: delete this; PUBLISH message is forthcoming) and are optional when the
+subscriber initiates it.
+
+When a publisher sends Subgroups or Datagrams, these can contain either a
+Subscription Request ID or Publisher-Chosen Subscription ID, determined by the
+least significant bit of the identifier. Control messages for an established
+subscription can also use either identifier.  Messages that control the
+subscription such as SUBSCRIBE_UPDATE, UNSUBSCRIBE and SUBSCRIBE_DONE also use
+Subscription IDs.
+
+
 ### Scope {#track-scope}
 
 A MOQT scope is a set of servers (as identified by their connection
@@ -578,7 +600,7 @@ code, as defined below:
 |------|---------------------------|
 | 0x3  | Protocol Violation        |
 |------|---------------------------|
-| 0x4  | Duplicate Track Alias     |
+| 0x4  | Duplicate Subscription ID |
 |------|---------------------------|
 | 0x5  | Parameter Length Mismatch |
 |------|---------------------------|
@@ -603,8 +625,8 @@ code, as defined below:
 * Protocol Violation: The remote endpoint performed an action that was
   disallowed by the specification.
 
-* Duplicate Track Alias: The endpoint attempted to use a Track Alias
-  that was already in use.
+* Duplicate Subscription ID: The endpoint attempted to use a Publisher-Chosen
+  Subscription ID that was already in use.
 
 * Too Many Requests: The session was closed because the subscriber used a
   Request ID equal or larger than the current Maximum Request ID.
@@ -966,12 +988,18 @@ When a relay receives an incoming ANNOUNCE for a given namespace, for
 each active upstream subscription that matches that namespace, it SHOULD send a
 SUBSCRIBE to the publisher that sent the ANNOUNCE.
 
-Object headers carry a short hop-by-hop `Track Alias` that maps to
-the Full Track Name (see {{message-subscribe-ok}}). Relays use the
-`Track Alias` of an incoming Object to identify its track and find
-the active subscribers for that track. Relays MUST forward Objects to
-matching subscribers in accordance to each subscription's priority, group order,
-and delivery timeout.
+If a relay receives a Publisher-Chosen Subscription ID in SUBSCRIBE_OK, it
+SHOULD assign this ID to downstream subscriptions for the same track. Since
+subscribers can request tracks from uncoordinated publishers through a single
+relay session, it is not always possible to reuse the upstream PSID.  If there
+is no upstream Publisher-Chosen Subscription ID, or if the upstream PSID is
+already in use downstream for a different track, the relay SHOULD NOT set a
+Publisher-Chosen Subscription ID, and use the Subscription Request ID instead.
+
+Relays use the Subscription Identifier (see {{subscription-id}}) in an incoming
+Subgroup or Datagram to identify its subscription and find the active
+subscribers. Relays MUST forward Objects to matching subscribers in accordance
+to each subscription's priority, group order, and delivery timeout.
 
 If an upstream session is closed due to an unknown or invalid control message
 or Object, the relay MUST NOT continue to propagate that message or Object
@@ -1162,6 +1190,13 @@ Each version-specific parameter definition indicates the message types in which
 it can appear. If it appears in some other type of message, it MUST be ignored.
 Note that since Setup parameters use a separate namespace, it is impossible for
 these parameters to appear in Setup messages.
+
+### PUBLISHER CHOSEN SUBSCRIPTION ID {#publisher-chosen-subscription-id}
+
+The PUBLISHER CHOSEN SUBSCRIPTION ID parameter (Parameter Type 0x6) contains the
+PSID for this subscription (see {{subscription-id}}).  It can appear in
+SUBSCRIBE_OK.  If omitted, this subscription does not have a PSID and the
+publisher will only publish objects using the Subscription Request ID.
 
 #### AUTHORIZATION INFO {#authorization-info}
 
@@ -1436,7 +1471,6 @@ SUBSCRIBE Message {
   Type (i) = 0x3,
   Length (i),
   Request ID (i),
-  Track Alias (i),
   Track Namespace (tuple),
   Track Name Length (i),
   Track Name (..),
@@ -1453,12 +1487,6 @@ SUBSCRIBE Message {
 {: #moq-transport-subscribe-format title="MOQT SUBSCRIBE Message"}
 
 * Request ID: See {{request-id}}.
-
-* Track Alias: A session specific identifier for the track.
-Data streams and datagrams specify the Track Alias instead of the Track Name
-and Track Namespace to reduce overhead. If the Track Alias is already being used
-for a different track, the publisher MUST close the session with a Duplicate
-Track Alias error ({{session-termination}}).
 
 * Track Namespace: Identifies the namespace of the track as defined in
 ({{track-name}}).
@@ -1555,7 +1583,6 @@ SUBSCRIBE_ERROR
   Error Code (i),
   Reason Phrase Length (i),
   Reason Phrase (..),
-  Track Alias (i),
 }
 ~~~
 {: #moq-transport-subscribe-error format title="MOQT SUBSCRIBE_ERROR Message"}
@@ -1566,11 +1593,6 @@ SUBSCRIBE_ERROR
 * Error Code: Identifies an integer error code for subscription failure.
 
 * Reason Phrase: Provides the reason for subscription error.
-
-* Track Alias: When Error Code is 'Retry Track Alias', the subscriber SHOULD re-issue the
-  SUBSCRIBE with this Track Alias instead. If this Track Alias is already in use,
-  the subscriber MUST close the connection with a Duplicate Track Alias error
-  ({{session-termination}}).
 
 The application SHOULD use a relevant error code in SUBSCRIBE_ERROR,
 as defined below:
@@ -1590,8 +1612,6 @@ as defined below:
 |------|---------------------------|
 | 0x5  | Invalid Range             |
 |------|---------------------------|
-| 0x6  | Retry Track Alias         |
-|------|---------------------------|
 
 * Internal Error - An implementation specific or generic error occurred.
 
@@ -1608,9 +1628,6 @@ as defined below:
 
 * Invalid Range - The end of the SUBSCRIBE range is earlier than the beginning,
   or the end of the range has already been published.
-
-* Retry Track Alias - The publisher requires the subscriber to use the given
-  Track Alias when subscribing.
 
 
 ## SUBSCRIBE_UPDATE {#message-subscribe-update}
@@ -1647,7 +1664,7 @@ The format of SUBSCRIBE_UPDATE is as follows:
 SUBSCRIBE_UPDATE Message {
   Type (i) = 0x2,
   Length (i),
-  Request ID (i),
+  Subscription ID (i),
   Start (Location),
   EndGroup (i),
   Subscriber Priority (8),
@@ -1658,8 +1675,10 @@ SUBSCRIBE_UPDATE Message {
 ~~~
 {: #moq-transport-subscribe-update-format title="MOQT SUBSCRIBE_UPDATE Message"}
 
-* Request ID: The Request ID of the SUBSCRIBE ({{message-subscribe-req}}) this
-  message is updating.  This MUST match an existing Request ID.
+* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
+  Subscription Identifier (see {{subscription-id}}) for the subscription to
+  update. If an endpoint receives a SUBSCRIBE_UPDATE with an ID that does not
+  refer to an active subscription, it MUST ignore the message.
 
 * Start: The starting location.
 
@@ -1689,13 +1708,14 @@ The format of `UNSUBSCRIBE` is as follows:
 UNSUBSCRIBE Message {
   Type (i) = 0xA,
   Length (i),
-  Request ID (i)
+  Subscription ID (i)
 }
 ~~~
 {: #moq-transport-unsubscribe-format title="MOQT UNSUBSCRIBE Message"}
 
-* Request ID: The Request ID of the subscription that is being terminated. See
-  {{message-subscribe-req}}.
+* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
+  Subscription Identifier (see {{subscription-id}}) of the subscription that is
+  being terminated.
 
 ## SUBSCRIBE_DONE {#message-subscribe-done}
 
@@ -1739,7 +1759,7 @@ The format of `SUBSCRIBE_DONE` is as follows:
 SUBSCRIBE_DONE Message {
   Type (i) = 0xB,
   Length (i),
-  Request ID (i),
+  Subscription ID (i),
   Status Code (i),
   Stream Count (i),
   Reason Phrase Length (i),
@@ -1748,8 +1768,10 @@ SUBSCRIBE_DONE Message {
 ~~~
 {: #moq-transport-subscribe-fin-format title="MOQT SUBSCRIBE_DONE Message"}
 
-* Request ID: The Request ID of the subscription that is being terminated. See
-  {{message-subscribe-req}}.
+* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
+  Subscription identifier (see {{subscription-id}}) of the subscription that is
+  being terminated.  If an endpoint receives a SUBSCRIBE_DONE with an unknown
+  Subscription ID, it MUST close thes session with a Protocol Violation.
 
 * Status Code: An integer status code indicating why the subscription ended.
 
@@ -2633,7 +2655,7 @@ will be dropped.
 
 ~~~
 OBJECT_DATAGRAM {
-  Track Alias (i),
+  Subscription ID (i),
   Group ID (i),
   Object ID (i),
   Publisher Priority (8),
@@ -2654,7 +2676,7 @@ conveys an Object Status and has no payload.
 
 ~~~
 OBJECT_DATAGRAM_STATUS {
-  Track Alias (i),
+  Subscription ID (i),
   Group ID (i),
   Object ID (i),
   Publisher Priority (8),
@@ -2664,6 +2686,15 @@ OBJECT_DATAGRAM_STATUS {
 }
 ~~~
 {: #object-datagram-status-format title="MOQT OBJECT_DATAGRAM_STATUS"}
+
+* Subscription ID: the Subscriber or Publisher chosen Subscription Identifier
+  (see {{subscription-id}}) indicating the subscription this Datagram belongs
+  to.  If an endpoint receives a datagram with a Subscription Request ID that
+  does not correspond to a subscription it initiated, it MAY close the session
+  with a Protocol Violation.  If it receives a datagram with an unknown
+  Publisher-Chosen Subscription Identifier, it MAY drop the datagram or choose
+  to buffer it for a brief period to handle reordering with the control message
+  that establishes the PSID.
 
 ## Streams
 
@@ -2685,18 +2716,29 @@ effect on outstanding subscriptions.
 ### Subgroup Header
 
 When a stream begins with `SUBGROUP_HEADER`, all Objects on the stream
-belong to the track requested in the Subscribe message identified by `Track Alias`
-and the subgroup indicated by 'Group ID' and `Subgroup ID`.
+belong to the track requested in the subscription identified by `Subscription
+Identifier` and the subgroup indicated by 'Group ID' and `Subgroup ID`.
 
 ~~~
 SUBGROUP_HEADER {
-  Track Alias (i),
+  Subscription ID (i),
   Group ID (i),
   Subgroup ID (i),
   Publisher Priority (8),
 }
 ~~~
 {: #object-header-format title="MOQT SUBGROUP_HEADER"}
+
+* Subscription ID: the Subscriber or Publisher chosen Subscription Identifier
+  (see {{subscription-id}}) indicating the subscription this Subgroup belongs
+  to. If an endpoint receives a subgroup with a Subscription Request ID that
+  does not correspond to a subscription it initiated, it MUST close the
+  connection with a Protocol Violation.  If it receives a subgroup with an
+  unknown Publisher-Chosen Subscription Identifier, it MAY abandon the stream,
+  or choose to buffer it for a brief period to handle reordering with the
+  control message that establishes the PSID.  The endpoint SHOULD NOT release
+  stream flow control beyond the SUBGROUP_HEADER until the PSID has been
+  established.  TODO: talk about possible deadlocks.
 
 All Objects received on a stream opened with `SUBGROUP_HEADER` have an
 `Object Forwarding Preference` = `Subgroup`.
@@ -2837,7 +2879,7 @@ Sending a subgroup on one stream:
 Stream = 2
 
 SUBGROUP_HEADER {
-  Track Alias = 2
+  Subscription ID = 2
   Group ID = 0
   Subgroup ID = 0
   Publisher Priority = 0
@@ -2863,7 +2905,7 @@ Extension Headers.
 Stream = 2
 
 STREAM_HEADER_GROUP {
-  Track Alias = 2
+  Subscription ID = 2
   Group ID = 0
   Publisher Priority = 0
 }
