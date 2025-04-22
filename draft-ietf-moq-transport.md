@@ -766,7 +766,7 @@ forward the result to the application, so the application can decide which other
 publishers to contact, if any.
 
 An UNSUBSCRIBE_NAMESPACE withdraws a previous SUBSCRIBE_NAMESPACE. It does not
-prohibit the publishers from sending further ANNOUNCE or PUBLISH messages, but
+prohibit original publishers from sending further ANNOUNCE or PUBLISH messages, but
 it does prevent relays from sending them.
 
 ## Announcements
@@ -1920,9 +1920,9 @@ PUBLISH Message {
   Track Name Length (i),
   Track Name (..),
   Group Order (8),
+  Forward (8),
   ContentExists (8),
   [Largest (Location),]
-  Forward (8),
   Number of Parameters (i),
   Parameters (..) ...,
 }
@@ -1930,9 +1930,6 @@ PUBLISH Message {
 {: #moq-transport-publish-format title="MOQT PUBLISH Message"}
 
 * Request ID: See {{request-id}}.
-
-* Publisher Subscription ID: The Publisher-Chosen Subscription ID for
-  this subscription.
 
 * Track Namespace: Identifies a track's namespace as defined in ({{track-name}})
 
@@ -1964,9 +1961,9 @@ PUBLISH_OK Message
   Type (i) = 0x7,
   Length (i),
   Request ID (i),
-  Forward (8),
   Subscriber Priority (8),
   Group Order (8),
+  Forward (8),
   Filter Type (i),
   [Start (Location)],
   [EndGroup (i)],
