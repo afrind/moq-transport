@@ -446,22 +446,21 @@ the bytes in the Track Namespace or Track Name such that exact comparison works.
 
 To optimize wire efficiency, some MoQT messages refer to a track by a numeric
 identifier, rather than the Full Track Name. When a subscriber makes a SUBSCRIBE
-or FETCH request for a track, it associates a Request ID with the request.  The
-corresponding Subscription Request ID is equal to `Request ID << 1`.
+or FETCH request for a Track, it associates a Request ID with the request.  The
+Request ID (RSID) can be used as a Subscription ID by shifting it left by one,
+eg: `Request Subscription ID = Request ID << 1`.
 
-MoQT also allows the publisher to choose an identifier for each track, called
-the Publisher-Chosen Subscription ID (PSID). PSIDs are odd and have a maximum
-value of 2^62-1. The same identifier MUST NOT be assigned to multiple tracks in the
-same session.  PSIDs are required when the publisher initiates the subscription
-(TODO: delete this; PUBLISH message is forthcoming) and are optional when the
-subscriber initiates it.
+MoQT also allows the publisher to choose an identifier for each subscription,
+called the Publisher-Chosen Subscription ID (PSID). PSIDs are odd and have a
+maximum value of 2^62-1. The same identifier MUST NOT be assigned to different
+Tracks in the same session.  The publisher is not required to specify a PSID.
 
-When a publisher sends Subgroups or Datagrams, these can contain either a
-Subscription Request ID or Publisher-Chosen Subscription ID, determined by the
-least significant bit of the identifier. Control messages for an established
-subscription can also use either identifier.  Messages that control the
-subscription such as SUBSCRIBE_UPDATE, UNSUBSCRIBE and SUBSCRIBE_DONE also use
-Subscription IDs.
+The term Subscription ID refers to either a Request Subscription ID or
+Publisher-Chosen Subscription ID, determined by the least significant bit of
+the identifier.  Subgroups, Datagrams as well as control messages for
+established subscriptions such as SUBSCRIBE_UPDATE, UNSUBSCRIBE and
+SUBSCRIBE_DONE use Subscription IDs.  The sender chooses the identifier type
+based on its preference.
 
 
 ### Scope {#track-scope}
@@ -989,12 +988,12 @@ each active upstream subscription that matches that namespace, it SHOULD send a
 SUBSCRIBE to the publisher that sent the ANNOUNCE.
 
 If a relay receives a Publisher-Chosen Subscription ID in SUBSCRIBE_OK, it
-SHOULD assign this ID to downstream subscriptions for the same track. Since
-subscribers can request tracks from uncoordinated publishers through a single
+MAY assign this ID to downstream subscriptions for the same Track. Since
+subscribers can request Tracks from uncoordinated publishers through a single
 relay session, it is not always possible to reuse the upstream PSID.  If there
 is no upstream Publisher-Chosen Subscription ID, or if the upstream PSID is
-already in use downstream for a different track, the relay SHOULD NOT set a
-Publisher-Chosen Subscription ID, and use the Subscription Request ID instead.
+already in use downstream for a different Track, the relay SHOULD NOT set a
+Publisher-Chosen Subscription ID, and use the Request Subscription ID instead.
 
 Relays use the Subscription Identifier (see {{subscription-id}}) in an incoming
 Subgroup or Datagram to identify its subscription and find the active
