@@ -1195,7 +1195,7 @@ these parameters to appear in Setup messages.
 The PUBLISHER CHOSEN SUBSCRIPTION ID parameter (Parameter Type 0x6) contains the
 PSID for this subscription (see {{subscription-id}}).  It can appear in
 SUBSCRIBE_OK.  If omitted, this subscription does not have a PSID and the
-publisher will only publish objects using the Subscription Request ID.
+publisher will only publish objects using the Request Subscription ID.
 
 #### AUTHORIZATION INFO {#authorization-info}
 
@@ -1674,7 +1674,7 @@ SUBSCRIBE_UPDATE Message {
 ~~~
 {: #moq-transport-subscribe-update-format title="MOQT SUBSCRIBE_UPDATE Message"}
 
-* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
+* Subscription ID: Either the Request Subscription ID or Publisher-Chosen
   Subscription Identifier (see {{subscription-id}}) for the subscription to
   update. If an endpoint receives a SUBSCRIBE_UPDATE with an ID that does not
   refer to an active subscription, it MUST ignore the message.
@@ -1712,7 +1712,7 @@ UNSUBSCRIBE Message {
 ~~~
 {: #moq-transport-unsubscribe-format title="MOQT UNSUBSCRIBE Message"}
 
-* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
+* Subscription ID: Either the Request Subscription ID or Publisher-Chosen
   Subscription Identifier (see {{subscription-id}}) of the subscription that is
   being terminated.
 
@@ -1767,7 +1767,7 @@ SUBSCRIBE_DONE Message {
 ~~~
 {: #moq-transport-subscribe-fin-format title="MOQT SUBSCRIBE_DONE Message"}
 
-* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
+* Subscription ID: Either the Request Subscription ID or Publisher-Chosen
   Subscription identifier (see {{subscription-id}}) of the subscription that is
   being terminated.  If an endpoint receives a SUBSCRIBE_DONE with an unknown
   Subscription ID, it MUST close thes session with a Protocol Violation.
@@ -2688,7 +2688,7 @@ OBJECT_DATAGRAM_STATUS {
 
 * Subscription ID: the Subscriber or Publisher chosen Subscription Identifier
   (see {{subscription-id}}) indicating the subscription this Datagram belongs
-  to.  If an endpoint receives a datagram with a Subscription Request ID that
+  to.  If an endpoint receives a datagram with a Request Subscription ID that
   does not correspond to a subscription it initiated, it MAY close the session
   with a Protocol Violation.  If it receives a datagram with an unknown
   Publisher-Chosen Subscription Identifier, it MAY drop the datagram or choose
@@ -2730,7 +2730,7 @@ SUBGROUP_HEADER {
 
 * Subscription ID: the Subscriber or Publisher chosen Subscription Identifier
   (see {{subscription-id}}) indicating the subscription this Subgroup belongs
-  to. If an endpoint receives a subgroup with a Subscription Request ID that
+  to. If an endpoint receives a subgroup with a Request Subscription ID that
   does not correspond to a subscription it initiated, it MUST close the
   connection with a Protocol Violation.  If it receives a subgroup with an
   unknown Publisher-Chosen Subscription Identifier, it MAY abandon the stream,
