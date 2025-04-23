@@ -451,7 +451,7 @@ corresponding Subscription Request ID is equal to `Request ID << 1`.
 
 MoQT also allows the publisher to choose an identifier for each track, called
 the Publisher-Chosen Track ID (PTID). PTIDs are odd and have a maximum
-value of 2^61-1. The same identifier MUST NOT be assigned to multiple tracks in the
+value of 2^62-1. The same identifier MUST NOT be assigned to multiple tracks in the
 same session.  PSIDs are required when the publisher initiates the subscription
 (TODO: delete this; PUBLISH message is forthcoming) and are optional when the
 subscriber initiates it.
