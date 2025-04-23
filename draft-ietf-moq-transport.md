@@ -446,22 +446,29 @@ the bytes in the Track Namespace or Track Name such that exact comparison works.
 
 To optimize wire efficiency, some MoQT messages refer to a track by a numeric
 identifier, rather than the Full Track Name. When a subscriber makes a SUBSCRIBE
-or FETCH request for a Track, it associates a Request ID with the request.  The
-Request ID (RSID) can be used as a Subscription ID by shifting it left by one,
-eg: `Request Subscription ID = Request ID << 1`.
+request for a Track, it associates a Request ID with the request.  The Request
+ID can be used as a Subscription ID by shifting it left by one, eg:
+`Subscription Request ID = Request ID << 1`.
 
 MoQT also allows the publisher to choose an identifier for each subscription,
 called the Publisher-Chosen Subscription ID (PSID). PSIDs are odd and have a
 maximum value of 2^62-1. The same identifier MUST NOT be assigned to different
 Tracks in the same session.  The publisher is not required to specify a PSID.
 
-The term Subscription ID refers to either a Request Subscription ID or
+The term Subscription ID refers to either a Subscription Request ID or
 Publisher-Chosen Subscription ID, determined by the least significant bit of
 the identifier.  Subgroups, Datagrams as well as control messages for
 established subscriptions such as SUBSCRIBE_UPDATE, UNSUBSCRIBE and
 SUBSCRIBE_DONE use Subscription IDs.  The sender chooses the identifier type
-based on its preference.
+based on its preference, subject to specific handling for relays
+(see {{publisher-interactions}}.
 
+DISCUSS:
+
+1. Are publishers required to specify a PSID?
+2. What is the right normative language for relay handling of PSIDs:
+   (MAY, SHOULD, MUST try to) use the upstream PSID downstream?
+3. Should SUBSCRIBE_UPDATE and UNSUBSCRIBE take Request ID or Subscription ID?
 
 ### Scope {#track-scope}
 
@@ -993,7 +1000,7 @@ subscribers can request Tracks from uncoordinated publishers through a single
 relay session, it is not always possible to reuse the upstream PSID.  If there
 is no upstream Publisher-Chosen Subscription ID, or if the upstream PSID is
 already in use downstream for a different Track, the relay SHOULD NOT set a
-Publisher-Chosen Subscription ID, and use the Request Subscription ID instead.
+Publisher-Chosen Subscription ID, and use the Subscription Request ID instead.
 
 Relays use the Subscription Identifier (see {{subscription-id}}) in an incoming
 Subgroup or Datagram to identify its subscription and find the active
@@ -1195,7 +1202,7 @@ these parameters to appear in Setup messages.
 The PUBLISHER CHOSEN SUBSCRIPTION ID parameter (Parameter Type 0x6) contains the
 PSID for this subscription (see {{subscription-id}}).  It can appear in
 SUBSCRIBE_OK.  If omitted, this subscription does not have a PSID and the
-publisher will only publish objects using the Request Subscription ID.
+publisher will only publish objects using the Subscription Request ID.
 
 #### AUTHORIZATION INFO {#authorization-info}
 
@@ -1674,7 +1681,7 @@ SUBSCRIBE_UPDATE Message {
 ~~~
 {: #moq-transport-subscribe-update-format title="MOQT SUBSCRIBE_UPDATE Message"}
 
-* Subscription ID: Either the Request Subscription ID or Publisher-Chosen
+* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
   Subscription Identifier (see {{subscription-id}}) for the subscription to
   update. If an endpoint receives a SUBSCRIBE_UPDATE with an ID that does not
   refer to an active subscription, it MUST ignore the message.
@@ -1712,7 +1719,7 @@ UNSUBSCRIBE Message {
 ~~~
 {: #moq-transport-unsubscribe-format title="MOQT UNSUBSCRIBE Message"}
 
-* Subscription ID: Either the Request Subscription ID or Publisher-Chosen
+* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
   Subscription Identifier (see {{subscription-id}}) of the subscription that is
   being terminated.
 
@@ -1767,7 +1774,7 @@ SUBSCRIBE_DONE Message {
 ~~~
 {: #moq-transport-subscribe-fin-format title="MOQT SUBSCRIBE_DONE Message"}
 
-* Subscription ID: Either the Request Subscription ID or Publisher-Chosen
+* Subscription ID: Either the Subscription Request ID or Publisher-Chosen
   Subscription identifier (see {{subscription-id}}) of the subscription that is
   being terminated.  If an endpoint receives a SUBSCRIBE_DONE with an unknown
   Subscription ID, it MUST close thes session with a Protocol Violation.
@@ -2688,7 +2695,7 @@ OBJECT_DATAGRAM_STATUS {
 
 * Subscription ID: the Subscriber or Publisher chosen Subscription Identifier
   (see {{subscription-id}}) indicating the subscription this Datagram belongs
-  to.  If an endpoint receives a datagram with a Request Subscription ID that
+  to.  If an endpoint receives a datagram with a Subscription Request ID that
   does not correspond to a subscription it initiated, it MAY close the session
   with a Protocol Violation.  If it receives a datagram with an unknown
   Publisher-Chosen Subscription Identifier, it MAY drop the datagram or choose
@@ -2730,7 +2737,7 @@ SUBGROUP_HEADER {
 
 * Subscription ID: the Subscriber or Publisher chosen Subscription Identifier
   (see {{subscription-id}}) indicating the subscription this Subgroup belongs
-  to. If an endpoint receives a subgroup with a Request Subscription ID that
+  to. If an endpoint receives a subgroup with a Subscription Request ID that
   does not correspond to a subscription it initiated, it MUST close the
   connection with a Protocol Violation.  If it receives a subgroup with an
   unknown Publisher-Chosen Subscription Identifier, it MAY abandon the stream,
