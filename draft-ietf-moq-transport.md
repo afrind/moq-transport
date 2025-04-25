@@ -483,7 +483,7 @@ different data, they MUST have different names and/or namespaces.
 ### Subscriptions
 
 There are two kinds of subscriptions in MoQT - a subscription to a track and a
-subscription to a track namespace.  Subscriptions to a track receive objects
+subscription to a track namespace or part of the namespace.  Subscriptions to a track receive objects
 published on that track.  Subscriptions to a namespace recieve subscriptions to
 tracks within that namespace.
 
@@ -790,7 +790,7 @@ An endpoint SHOULD NOT, however, send a PUBLISH advertising a namespace or track
 that exactly matches a namespace for which the peer sent an earlier PUBLISH
 (i.e. a PUBLISH ought not to be echoed back to its sender).
 
-The receiver of an PUBLISH_OK or PUBLISH_ERROR SHOULD report this to the
+The receiver of a PUBLISH_OK or PUBLISH_ERROR SHOULD report this to the
 application. A subscriber MUST send exactly one PUBLISH_OK or PUBLISH_ERROR in
 response to a PUBLISH. The publisher SHOULD close the session with a protocol
 error if it receives more than one.
