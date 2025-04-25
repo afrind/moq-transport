@@ -795,7 +795,8 @@ application. A subscriber MUST send exactly one PUBLISH_OK or PUBLISH_ERROR in
 response to a PUBLISH. The publisher SHOULD close the session with a protocol
 error if it receives more than one.
 
-A SUBSCRIBE_DONE message terminates a PUBLISH of a track or of a namespace.
+A SUBSCRIBE_DONE message ({{message-subscribe-done}}) terminates a PUBLISH of a
+track or of a namespace.
 
 A subscriber can send UNSUBSCRIBE to revoke acceptance of a PUBLISH, for example
 due to expiration of authorization credentials. The message enables the
