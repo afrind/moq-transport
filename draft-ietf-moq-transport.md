@@ -500,7 +500,7 @@ sender of PUBLISH_OK can update the Forward State based on its preference.  Once
 established, the subscriber can change the Forward State by sending
 SUBSCRIBE_UPDATE.
 
-Either endpoint can initiate a subscription to a track without exhanging any
+Either endpoint can initiate a subscription to a track without exchanging any
 prior messages other than SETUP.  Relays however do not send any PUBLISH
 messages without first receiving a SUBSCRIBE_NAMESPACE to a relevant track
 namespace.
