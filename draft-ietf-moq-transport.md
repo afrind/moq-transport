@@ -1165,16 +1165,21 @@ PUBLISH_NAMESPACE messages.
 
 ## Discovery Track
 
-Every namespace has an associated discovery track with the Track Name `.discovery`.  
-A subscriber can subscribe to this track using `SUBSCRIBE` to learn what tracks or namespaces are available at a publisher.  
-Relays MUST allow subscriptions this track for every namespace they serve. Other publishers MAY allow subscriptions this track, or can reject them with `TRACK_NOT_FOUND`.
+Every namespace has an associated discovery track with the Track Name
+`.discovery`.  A subscriber can subscribe to this track using `SUBSCRIBE` to
+learn what tracks or namespaces are available at a publisher.  Relays MUST allow
+subscriptions this track for every namespace they serve. Other publishers MAY
+allow subscriptions this track, or can reject them with `TRACK_NOT_FOUND`.
 
-The discovery track provides a means for subscribers to enumerate available content within a namespace without relying on `PUBLISH_NAMESPACE` or `PUBLISH` messages.
+The discovery track provides a means for subscribers to enumerate available
+content within a namespace without relying on `PUBLISH_NAMESPACE` or `PUBLISH`
+messages.
 
 ### Discovery Track Format
 
 Each group in the discovery track contains only one subgroup (Subgroup ID 0).
-Each object contains one or more discovery entries, where each entry has the following structure:
+Each object contains one or more discovery entries, where each entry has the
+following structure:
 
 ~~~
 Discovery Entry {
@@ -1187,41 +1192,58 @@ Discovery Entry {
 }
 ~~~
 
-* Length:  
-  A variable-length integer specifying the length of all fields following this field in the discovery entry, in bytes.
+* Length: A variable-length integer specifying the length of all fields
+  following this field in the discovery entry, in bytes.
 
-* AddFlag:
-  Set to 1 if this entry is being added to the namespace. Set to 0 if this entry is being removed from the namespace.
+* AddFlag: Set to 1 if this entry is being added to the namespace. Set to 0 if
+  this entry is being removed from the namespace.
 
-* TrackFlag:  
-  Set to 1 if the Track Name field is present and this entry represents a specific track.  Set to 0 when no Track Name field and this entry represents a namespace.
+* TrackFlag: Set to 1 if the Track Name field is present and this entry
+  represents a specific track.  Set to 0 when the Track Name field is not
+  present and this entry represents a namespace.
 
-* Track Namespace:  
-  The track namespace of the track or namespace, encoded using the Track Namespace structure defined in {{track-namespace}}, after removing the common prefix with the namespace of the discovery track itself.  
-  Example:  
-  If the discovery track is subscribed to with namespace `("example.com", "meeting")` and an entry has namespace `("example.com", "meeting", "video")`, then this field contains a Track Namespace with one field: `"video"`.
+* Track Namespace: The track namespace of the track or namespace, encoded using
+  the Track Namespace structure defined in {{track-namespace}}, after removing
+  the common prefix with the namespace of the discovery track itself.
 
-* Track Name:  
-  Present when TrackFlag is 1. Contains the bytes of the track name. The length is determined by the Length field minus the lengths of other fields.  
-  A zero-length Track Name is permitted when TrackFlag is 1.
+  Example:
+
+  If the discovery track is subscribed to with namespace `("example.com",
+  "meeting")` and an entry has namespace `("example.com", "meeting", "video")`,
+  then this field contains a Track Namespace with one field: `"video"`.
+
+* Track Name: Present when TrackFlag is 1. Contains the bytes of the track
+  name. The length is determined by the Length field minus the lengths of other
+  fields.  A zero-length Track Name is permitted when TrackFlag is 1.
 
 ### Discovery Track Semantics
 
-Object 0 in each Group contains only entries with AddFlag set to 1, and represents the complete state of the namespace when published.  
-All available tracks and namespaces are included in Object 0.
+Object 0 in each Group contains only entries with AddFlag set to 1, and
+represents the complete state of the namespace when published.  All available
+tracks and namespaces are included in Object 0.
 
-Objects with Object ID > 0 in each Group are delta updates from Object 0.  
-These Objects can contain entries with AddFlag set to either 1 (additions) or 0 (removals).
+Objects with Object ID > 0 in each Group are delta updates from Object 0.  These
+Objects can contain entries with AddFlag set to either 1 (additions) or 0
+(removals).
 
-Subscribe to a discovery track using `SUBSCRIBE` with Filter Type `Largest Object` ({{largest-object}}), followed by a Joining `FETCH` ({{joining-fetches}}) to retrieve Object 0 of the current group.  
-This allows subscribers to obtain the complete current state while also receiving future updates.
+Subscribe to a discovery track using `SUBSCRIBE` with Filter Type `Largest
+Object` ({{largest-object}}), followed by a Joining `FETCH`
+({{joining-fetches}}) to retrieve Object 0 of the current group.  This allows
+subscribers to obtain the complete current state while also receiving future
+updates.
 
-Publishers of the discovery track SHOULD create a new group after every 100 delete operations (entries with AddFlag set to 0) to keep the delta set from becoming too large.  
-When a new group is created, Object 0 contains the current complete state, reflecting all previous additions and deletions.  Publishers MUST be able to serve the current Group of the discovery track via FETCH, but can discard all previous groups when a new Group is published.
+Publishers of the discovery track SHOULD create a new group after every 100
+delete operations (entries with AddFlag set to 0) to keep the delta set from
+becoming too large.  When a new group is created, Object 0 contains the current
+complete state, reflecting all previous additions and deletions.  Publishers
+MUST be able to serve the current Group of the discovery track via FETCH, but
+can discard all previous groups when a new Group is published.
 
-Relays MUST maintain an accurate discovery track for each namespace they serve, reflecting the tracks and namespaces available through the relay.  
-Relays MUST publish a new Object on the discovery track when upstream `PUBLISH_NAMESPACE`, `PUBLISH_NAMESPACE_DONE`, `PUBLISH`, or `PUBLISH_DONE` messages change the set of available tracks or namespaces.
-
+Relays MUST maintain an accurate discovery track for each namespace they serve,
+reflecting the tracks and namespaces available through the relay.  Relays MUST
+publish a new Object on the discovery track when upstream `PUBLISH_NAMESPACE`,
+`PUBLISH_NAMESPACE_DONE`, `PUBLISH`, or `PUBLISH_DONE` messages change the set
+of available tracks or namespaces.
 
 # Priorities {#priorities}
 
