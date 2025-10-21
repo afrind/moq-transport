@@ -1171,6 +1171,10 @@ learn what tracks or namespaces are available at a publisher.  Relays MUST allow
 subscriptions this track for every namespace they serve. Other publishers MAY
 allow subscriptions this track, or can reject them with `TRACK_NOT_FOUND`.
 
+Because two Relays might have different Tracks in a namespace available at any
+point in time, the Scope (see {{track-scope}} of a discovery track is only a
+single server.
+
 The discovery track provides a means for subscribers to enumerate available
 content within a namespace without relying on `PUBLISH_NAMESPACE` or `PUBLISH`
 messages.
