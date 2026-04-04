@@ -1272,12 +1272,6 @@ Forward State in either PUBLISH or SUBSCRIBE.  The subscriber can send PUBLISH_O
 or REQUEST_UPDATE to update the Forward State. Control messages, such as
 PUBLISH_DONE ({{message-publish-done}}) are sent regardless of the forward state.
 
-A publisher MUST save the Largest Location communicated in SUBSCRIBE_OK, PUBLISH
-or REQUEST_OK (in response to a REQUEST_UPDATE) that changes the Forward State
-from 0 to 1.  This value is called the Joining Location and can be used in a
-Joining FETCH (see {{joining-fetches}}) while the subscription is in the
-`Established` state.
-
 Either endpoint can initiate a subscription to a track without exchanging any
 prior messages other than SETUP.  Relays MUST NOT send any PUBLISH messages
 without knowing the client is interested in and authorized to receive the
@@ -1333,11 +1327,11 @@ end with an error.
 
 ### Subscription Filters {#subscription-filters}
 
-Subscribers can specify a filter on a subscription indicating to the publisher
-which Objects to send.  Subscriptions without a filter pass all Objects
-published or received via upstream subscriptions.
+Every subscription has a filter indicating to the publisher which Objects to
+send.  If no SUBSCRIPTION_FILTER parameter is included in SUBSCRIBE, the
+default filter is Largest Object.
 
-All filters have a Start Location and an optional End Group Delta.  Only objects
+All filters have a Start Location and an optional Group Delta.  Only objects
 published or received via a subscription having Locations greater than or
 equal to Start Location and strictly less than or equal to the End Group (when
 present) pass the filter.
@@ -1354,7 +1348,7 @@ A Subscription Filter has the following structure:
 Subscription Filter {
   Filter Type (vi64),
   [Start Location (Location),]
-  [End Group Delta (vi64),]
+  [Group Delta (vi64),]
 }
 ~~~
 
@@ -1375,11 +1369,16 @@ the subscription is open ended. For scenarios where the subscriber intends to
 start from more than one group in the future, it can use an AbsoluteStart filter
 instead.
 
+Current Group (0x6): The filter Start Location is `{Largest Object.Group, 0}`
+and `Largest Object` is communicated in SUBSCRIBE_OK. If no content has been
+delivered yet, the filter Start Location is {0, 0}. There is no End Group -
+the subscription is open ended. This delivers all objects from the beginning
+of the current group onwards.
+
 AbsoluteStart (0x3): The filter Start Location is specified explicitly. The
 specified `Start Location` MAY be less than the `Largest Object` observed at the
 publisher. There is no End Group - the subscription is open ended.  An
-AbsoluteStart filter with `Start` = {0, 0} is equivalent to an unfiltered
-subscription.
+AbsoluteStart filter with `Start` = {0, 0} requests all Objects in the Track.
 
 AbsoluteRange (0x4): The filter Start Location and End Group are specified
 explicitly. The specified `Start Location` MAY be less than the `Largest Object`
@@ -1388,6 +1387,13 @@ remainder of that Group passes the filter. Otherwise, the last Group ID to be
 delivered will be the Group ID in `Start Location` plus the `End Group Delta`.
 If the resulting Group ID would be greater than 2^64 - 1, the endpoint MUST
 close the session with a `PROTOCOL_VIOLATION`.
+
+RelativeStart (0x5): The `Group Delta` field contains a Group Delta (varint).
+The filter Start Location is `{max(Largest Object.Group - Group Delta, 0), 0}`
+and `Largest Object` is communicated in SUBSCRIBE_OK. If no content has been
+delivered yet, the filter Start Location is {0, 0}. There is no End Group -
+the subscription is open ended. This allows a subscriber to request N groups
+before the Largest Location without knowing the absolute group number.
 
 An endpoint that receives a filter type other than the above MUST close the
 session with `PROTOCOL_VIOLATION`.
@@ -1404,30 +1410,38 @@ is a join point, so in order for a subscriber to join a Track, it needs to
 request an existing Group or wait for a future Group.  Different applications
 will have different approaches for when to begin a new Group.
 
-To join a Track at a past Group, the subscriber sends a SUBSCRIBE, PUBLISH_OK or
-REQUEST_UPDATE with Forward State 1 followed by a Joining FETCH (see
-{{joining-fetches}}) for the intended start Group, which can be relative.  When
-the Joining FETCH follows a REQUEST_UPDATE that transitions Forward State from
-0 to 1, the FETCH MUST set its Required Request ID ({{required-request-id}}) to
-the REQUEST_UPDATE's Request ID or later.  To join a Track at the next Group, the
-subscriber sends a SUBSCRIBE with Filter Type `Next Group Start`.
+To join a Track at a past Group, the subscriber sends a SUBSCRIBE with a filter
+that starts in the past, such as AbsoluteStart, AbsoluteRange, or
+RelativeStart. Past objects are delivered using subscription semantics
+(per-subgroup streams) from the publisher's cache or via upstream subscription,
+subject to the SUBSCRIBE_MODE parameter ({{mode-parameter}}).
+
+To join a Track at the next Group, the subscriber sends a SUBSCRIBE with Filter
+Type `Next Group Start`.
+
+When a subscriber sends REQUEST_UPDATE to transition Forward State from 0 to 1,
+it includes a SUBSCRIPTION_FILTER specifying where to start (e.g., current
+group, RelativeStart(1), AbsoluteStart). If there were subgroup streams open
+from a prior Forward=1 period and the new filter starts within the current
+group at an earlier Object, those streams are reset and new ones are opened from
+the filter's start.
 
 #### Dynamically Starting New Groups
 
 While some publishers will deterministically create new Groups, other
 applications might want to only begin a new Group when needed.  A subscriber
 joining a Track might detect that it is more efficient to request the Original
-Publisher create a new group than issue a Joining FETCH.  Publishers indicate a
+Publisher create a new group than start from mid-group.  Publishers indicate a
 Track supports dynamic group creation using the DYNAMIC_GROUPS parameter
 ({{dynamic-groups}}).
 
 One possible subscriber pattern is to SUBSCRIBE to a Track using Filter Type
 `Largest Object` and observe the `Largest Location` in the response.  If the
-Object ID is below the application's threshold, the subscriber sends a FETCH for
-the beginning of the Group.  If the Object ID is above the threshold and the
-Track supports dynamic groups, the subscriber sends a REQUEST_UPDATE message with the
-NEW_GROUP_REQUEST parameter equal to the Largest Location's Group, plus one (see
-{{new-group-request}}).
+Object ID is below the application's threshold, the subscriber sends a
+REQUEST_UPDATE to widen the subscription to the beginning of the Group.  If the
+Object ID is above the threshold and the Track supports dynamic groups, the
+subscriber sends a REQUEST_UPDATE message with the NEW_GROUP_REQUEST parameter
+equal to the Largest Location's Group, plus one (see {{new-group-request}}).
 
 Another possible subscriber pattern is to send a SUBSCRIBE with Filter Type
 `Next Group Start` and NEW_GROUP_REQUEST equal to 0.  The value of
@@ -1458,6 +1472,20 @@ Since a relay can start delivering FETCH Objects from cache before determining
 the result of the request, some Objects could be received even if the FETCH
 results in error.
 
+## Lagging Subscribers
+
+TOO_FAR_BEHIND applies once a subscription has caught up to the Largest
+Location. It means the subscriber is consuming slower than the publisher is
+producing.
+
+When delivering past objects, the publisher can produce as fast as flow control
+allows. Past data volume is governed by the subscriber's flow control budget
+(MAX_SUB_STREAMS, MAX_SUB_BYTES), not TOO_FAR_BEHIND. The publisher can set a
+timeout for how long it is willing to be blocked by flow control and send
+TOO_FAR_BEHIND if exceeded.
+
+Relays have the option of transitioning a slow subscriber to serve from cache,
+governed by flow control, instead of sending TOO_FAR_BEHIND.
 
 # Namespace Discovery {#track-discovery}
 
@@ -1771,6 +1799,11 @@ Because MOQT restricts widening a subscription, relays that
 aggregate upstream subscriptions can subscribe using the Largest Object
 filter to avoid churn as downstream subscribers with disparate filters
 subscribe and unsubscribe from a Track.
+
+A relay that receives a subscription starting in the past can deliver objects
+from cache, or subscribe upstream for missing objects, subject to the MODE
+parameter ({{mode-parameter}}). Delivery of past objects is still subject to
+prioritization, delivery timeouts, and MAX_CACHE_DURATION.
 
 A subscriber remains subscribed to a Track at a Relay until it unsubscribes, the
 upstream publisher terminates the subscription, or the subscription expires (see
@@ -2449,6 +2482,46 @@ message ({{message-sub-bytes-blocked}}) to indicate it has reached the limit.
 An endpoint that detects a violation of this limit MUST close the session with
 `FLOW_CONTROL_EXCEEDED`.
 
+### SUBSCRIBE MODE Parameter {#mode-parameter}
+
+The SUBSCRIBE_MODE parameter (Parameter Type 0x35) is a varint. It MAY appear in a
+SUBSCRIBE, PUBLISH_OK, or REQUEST_UPDATE (for a subscription) message. The
+allowed values are LIVE (0x0), FILL (0x1), and REWIND (0x2). If an endpoint
+receives a value outside this range, it MUST close the session with
+`PROTOCOL_VIOLATION`.
+
+LIVE (0x0, default): The publisher does not serve any past objects. Only newly
+published objects matching the filter are delivered. The effective Start Location
+is the Largest Object at the time the subscription is processed, regardless of
+the filter's Start Location.
+
+FILL (0x1): The publisher or relay serves past objects from cache and
+subscribes upstream for any objects not in cache.
+
+REWIND (0x2): The publisher or relay serves past objects from cache on a
+best-effort basis, but does not subscribe upstream for missing objects. The
+publisher is not required to have all objects in a group to include it. Groups
+are only included if there are cached objects with Datagram forwarding
+preference or that are known to constitute the beginning of a Subgroup. Delivery
+is still subject to DELIVERY_TIMEOUT and MAX_CACHE_DURATION. The publisher MAY
+serve fewer groups than requested. The publisher indicates how far back it will
+actually serve by including the REWIND_GROUPS parameter
+({{rewind-groups-param}}) in SUBSCRIBE_OK.
+
+If the parameter is omitted, the default value is LIVE (0x0).
+
+### REWIND GROUPS Parameter {#rewind-groups-param}
+
+The REWIND_GROUPS parameter (Parameter Type 0x36) is a varint. It MAY appear
+in SUBSCRIBE_OK or REQUEST_OK (in response to a REQUEST_UPDATE that sets
+SUBSCRIBE_MODE to REWIND).
+
+It indicates the number of groups before the LARGEST_OBJECT that the publisher
+will deliver using REWIND semantics. A value of 0 means the publisher will
+deliver from the beginning of the current group only. If the SUBSCRIBE_MODE
+is not REWIND, this parameter MUST NOT be present; an endpoint that receives
+it in this case MUST close the session with `PROTOCOL_VIOLATION`.
+
 ## SETUP {#message-setup}
 
 The `SETUP` message is the first message each endpoint sends on its control
@@ -2761,10 +2834,12 @@ INVALID_JOINING_REQUEST_ID:
 
 ## SUBSCRIBE {#message-subscribe-req}
 
-A subscription causes the publisher to send newly published objects for a track.
+A subscription causes the publisher to send objects for a track.
 
-Subscribe only requests newly published or received Objects.  Objects from the
-past are retrieved using FETCH ({{message-fetch}}).
+Subscriptions can start in the past using filters such as AbsoluteStart,
+AbsoluteRange, or RelativeStart. Past objects are delivered using subscription
+semantics (per-subgroup streams, datagrams) from cache or upstream subscription,
+subject to the SUBSCRIBE_MODE parameter ({{mode-parameter}}).
 
 The format of SUBSCRIBE is as follows:
 
@@ -2864,14 +2939,28 @@ REQUEST_UPDATE Message {
 
 When a subscriber decreases the Start Location of the Subscription Filter
 (see {{subscription-filters}}), the Start Location can be smaller than the Track's
-Largest Location, similar to a new Subscription. FETCH can be used to retrieve
-any necessary Objects smaller than the current Largest Location.
+Largest Location. If the SUBSCRIBE_MODE is FILL or REWIND, past groups are
+delivered on new subgroup streams, subject to the mode's rules. In-progress
+streams for live groups continue uninterrupted, unless the widened filter starts
+within an in-progress group at an earlier Object, in which case existing subgroup
+streams for that group are reset and new ones are opened from the new start. If
+the SUBSCRIBE_MODE is LIVE, widening the filter backwards has no immediate
+effect; past objects are only delivered if the mode is also changed to FILL or
+REWIND.
+
+A subscriber can change the SUBSCRIBE_MODE via REQUEST_UPDATE. When the mode
+changes from LIVE to FILL or REWIND, the publisher begins delivering past
+objects within the subscription's filter range, subject to the new mode's rules.
+When the mode changes from FILL or REWIND to LIVE, the publisher stops
+delivering past objects and resets any in-progress backfill subgroup streams.
+When the mode changes between FILL and REWIND, the publisher adjusts its
+behavior accordingly (e.g., stopping or starting upstream subscriptions for
+missing objects).
 
 When a subscriber increases the End Location, the Largest Object at
 the publisher might already be larger than the previous End Location. This will
 create a gap in the subscription. The REQUEST_OK in response to the
-REQUEST_UPDATE will include the LARGEST_OBJECT parameter, and the subscriber
-can issue a FETCH to retrieve the omitted Objects, if any.
+REQUEST_UPDATE will include the LARGEST_OBJECT parameter.
 
 When a subscriber narrows their subscription (increase the Start Location and/or
 decrease the End Group), it might still receive Objects outside the
@@ -4683,6 +4772,8 @@ Setup Options SHOULD request a provisional registration.
 | 0x32 | NEW_GROUP_REQUEST | {{new-group-request}} |
 | 0x33 | MAX_SUB_STREAMS | {{max-sub-streams}} |
 | 0x34 | MAX_SUB_BYTES | {{max-sub-bytes}} |
+| 0x35 | SUBSCRIBE_MODE | {{mode-parameter}} |
+| 0x36 | REWIND_GROUPS | {{rewind-groups-param}} |
 
 * Message Parameters - List which params can be repeated in the table.
 
