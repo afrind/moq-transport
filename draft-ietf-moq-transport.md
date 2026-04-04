@@ -1285,15 +1285,12 @@ subscriptions initiated by other endpoints, and all published Objects will be
 forwarded back to the endpoint, subject to priority and congestion response
 rules.
 
-For a given Track, an endpoint can have at most one subscription to a Track
-acting as the publisher and at most one acting as a subscriber.  If an endpoint
-receives a message attempting to establish a second subscription to a Track
-with the same role, it MUST fail that request with a `DUPLICATE_SUBSCRIPTION`
-error.
+An endpoint can have multiple simultaneous subscriptions to the same Track,
+each with a unique Track Alias assigned by the publisher. This enables patterns
+such as a relay maintaining both a live subscription and a backfill subscription
+to the same Track simultaneously.
 
-If a publisher receives a SUBSCRIBE request for a Track with an existing
-subscription in `Pending (publisher)` state, it MUST fail that request with
-a `DUPLICATE_SUBSCRIPTION` error. If a subscriber receives a PUBLISH for a Track
+If a subscriber receives a PUBLISH for a Track
 with a subscription in the `Pending (Subscriber)` state, it MUST ensure the
 subscription it initiated transitions to the `Terminated` state before sending
 PUBLISH_OK.
@@ -1792,13 +1789,12 @@ forwarding to subscribers, unless it has application specific information.
 
 Relays MAY aggregate authorized subscriptions for a given Track when
 multiple subscribers request the same Track. Subscription aggregation
-allows relays to make only a single upstream subscription for the
-Track. The published content received from the upstream subscription
-request is cached and shared among the pending subscribers.
-Because MOQT restricts widening a subscription, relays that
-aggregate upstream subscriptions can subscribe using the Largest Object
-filter to avoid churn as downstream subscribers with disparate filters
-subscribe and unsubscribe from a Track.
+allows relays to make fewer upstream subscriptions for the
+Track. The published content received from upstream subscriptions
+is cached and shared among the pending subscribers. A relay might
+maintain a live upstream subscription and open additional upstream
+subscriptions for backfill when downstream subscribers request past
+objects.
 
 A relay that receives a subscription starting in the past can deliver objects
 from cache, or subscribe upstream for missing objects, subject to the MODE
@@ -2794,10 +2790,6 @@ UNSUPPORTED_EXTENSION:
 : The track contains a Mandatory Track Property
 (see {{mandatory-track-properties}}) that the endpoint does not understand.
 
-DUPLICATE_SUBSCRIPTION (0x19):
-: The PUBLISH or SUBSCRIBE request attempted to create a subscription to a Track
-with the same role as an existing subscription.
-
 Below are errors for use by the publisher. They can appear in response to
 SUBSCRIBE, FETCH, TRACK_STATUS, and SUBSCRIBE_NAMESPACE, unless otherwise noted.
 
@@ -3667,7 +3659,9 @@ MAY use both Subgroups and Datagrams within a Group or Track.
 To optimize wire efficiency, Subgroups and Datagrams refer to a track by a
 numeric identifier, rather than the Full Track Name.  Track Alias is chosen by
 the publisher and included in SUBSCRIBE_OK ({{message-subscribe-ok}}) or PUBLISH
-({{message-publish}}).
+({{message-publish}}).  Because each subscription gets its own Track Alias,
+multiple aliases can refer to the same Track when there are multiple
+subscriptions.
 
 Objects can arrive after a subscription has been cancelled.  Subscribers SHOULD
 retain sufficient state to quickly discard these unwanted Objects, rather than
@@ -4858,7 +4852,6 @@ the length field.
 | DOES_NOT_EXIST             | 0x10 | {{message-request-error}} |
 | INVALID_RANGE              | 0x11 | {{message-request-error}} |
 | MALFORMED_TRACK            | 0x12 | {{message-request-error}} |
-| DUPLICATE_SUBSCRIPTION     | 0x19 | {{message-request-error}} |
 | UNINTERESTED               | 0x20 | {{message-request-error}} |
 | PREFIX_OVERLAP             | 0x30 | {{message-request-error}} |
 | NAMESPACE_TOO_LARGE        | 0x31 | {{message-request-error}} |
