@@ -1356,19 +1356,17 @@ Subscription Filter {
 Filter Type can have one of the following values:
 
 Largest Object (0x2): The filter Start Location is `{Largest Object.Group,
-Largest Object.Object + 1}` and `Largest Object` is communicated in
-SUBSCRIBE_OK. If no content has been delivered yet, the filter Start Location is
-{0, 0}. There is no End Group - the subscription is open ended.  Note that due
-to network reordering or prioritization, relays can receive Objects with
-Locations smaller than  `Largest Object` after the SUBSCRIBE is processed, but
-these Objects do not pass the Largest Object filter.
+Largest Object.Object + 1}`. If no content has been delivered yet, the filter
+Start Location is {0, 0}. There is no End Group - the subscription is open
+ended.  Note that due to network reordering or prioritization, relays can
+receive Objects with Locations smaller than `Largest Object` after the SUBSCRIBE
+is processed, but these Objects do not pass the Largest Object filter.
 
 Next Group Start (0x1): The filter Start Location is `{Largest Object.Group + 1,
-0}` and `Largest Object` is communicated in SUBSCRIBE_OK. If no content has been
-delivered yet, the filter Start Location is {0, 0}.  There is no End Group -
-the subscription is open ended. For scenarios where the subscriber intends to
-start from more than one group in the future, it can use an AbsoluteStart filter
-instead.
+0}`. If no content has been delivered yet, the filter Start Location is {0, 0}.
+There is no End Group - the subscription is open ended. For scenarios where the
+subscriber intends to start from more than one group in the future, it can use
+an AbsoluteStart filter instead.
 
 AbsoluteStart (0x3): The filter Start Location is specified explicitly. The
 specified `Start Location` MAY be less than the `Largest Object` observed at the
@@ -1384,6 +1382,33 @@ delivered will be the Group ID in `Start Location` plus the `End Group Delta`.
 If the resulting Group ID would be greater than 2^64 - 1, the endpoint MUST
 close the session with a `PROTOCOL_VIOLATION`.
 
+CurrentGroupFill (0x5): The filter Start Location is `{Largest Object.Group,
+0}`. If no content has been delivered yet, the filter Start Location is {0, 0}.
+There is no End Group - the subscription is open ended. All Objects in the
+start Group with Locations greater than or equal to Start Location pass the
+filter, including Objects published before the SUBSCRIBE was processed. This
+means the publisher delivers both cached and new Objects for the start Group
+via the subscription. For subsequent Groups, Objects are delivered normally as
+they are published.
+
+The publisher MUST begin each subgroup with the lowest Object ID published by
+the Original Publisher in that subgroup. If the publisher is unable to deliver
+any subgroups or datagrams for the start Group (e.g., an empty cache and the
+Original Publisher no longer has the data), the START_LOCATION
+({{start-location-param}}) in SUBSCRIBE_OK indicates the actual Start Location,
+which will be at the beginning of the next Group.
+
+Relays responding to CurrentGroupFill MUST obtain all Objects in the start Group
+that are not already cached. A relay MUST NOT deliver an Object in a subgroup
+unless all prior Objects in that subgroup are accounted for — either already
+received, confirmed non-existent via gap properties, or fetched from
+upstream. An existing upstream subscription that started before the current
+Group will typically deliver these Objects without additional action, though
+temporary gaps can exist until they arrive. A relay without an active upstream
+subscription can issue one with CurrentGroupFill; otherwise it uses
+FETCH. Relays MAY use a timeout when waiting for upstream data, after which they
+reset the incomplete subgroup.
+
 An endpoint that receives a filter type other than the above MUST close the
 session with `PROTOCOL_VIOLATION`.
 
@@ -1398,6 +1423,13 @@ The MOQT Object model is designed with the concept that the beginning of a Group
 is a join point, so in order for a subscriber to join a Track, it needs to
 request an existing Group or wait for a future Group.  Different applications
 will have different approaches for when to begin a new Group.
+
+To join a Track at the current Group, including content already published in
+that Group, the subscriber sends a SUBSCRIBE with Filter Type
+`CurrentGroupFill`. The publisher delivers all Objects from the beginning of the
+Group, both cached and live, using subscription-style (subgroup/datagram)
+delivery. If the publisher is unable to serve the current Group, SUBSCRIBE_OK
+indicates that delivery starts at the next Group.
 
 To join a Track at a past Group, the subscriber sends a SUBSCRIBE, PUBLISH_OK or
 REQUEST_UPDATE with Forward State 1 followed by a Joining FETCH (see
@@ -2337,6 +2369,20 @@ subscription) message. It is a Subscription Filter (see {{subscription-filters}}
 
 If omitted from SUBSCRIBE or PUBLISH_OK, the subscription is
 unfiltered.  If omitted from REQUEST_UPDATE, the value is unchanged.
+
+### START LOCATION Parameter {#start-location-param}
+
+The START_LOCATION parameter (Parameter Type 0x0B) is a Location
+(see {{location-structure}}). It MUST appear in SUBSCRIBE_OK and in REQUEST_OK
+in response to a REQUEST_UPDATE that changes the SUBSCRIPTION_FILTER. It
+contains the Start Location of the subscription as determined by the publisher
+(see {{subscription-filters}}).
+
+The subscriber uses START_LOCATION to determine where delivery begins without
+needing to derive it from the filter type and LARGEST_OBJECT. For example,
+a CurrentGroupFill subscription where the publisher cannot serve the start
+Group will have a START_LOCATION at the beginning of the next Group, while
+LARGEST_OBJECT still reflects the publisher's actual state.
 
 ### EXPIRES Parameter {#expires}
 
@@ -4600,6 +4646,7 @@ Setup Options SHOULD request a provisional registration.
 | 0x08 | EXPIRES | {{expires}} |
 | 0x09 | LARGEST_OBJECT | {{largest-param}} |
 | 0x0A | FILL_TIMEOUT | {{fill-timeout}} |
+| 0x0B | START_LOCATION | {{start-location-param}} |
 | 0x10 | FORWARD | {{forward-parameter}} |
 | 0x20 | SUBSCRIBER_PRIORITY | {{subscriber-priority}} |
 | 0x21 | SUBSCRIPTION_FILTER | {{subscription-filter}} |
