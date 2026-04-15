@@ -1111,6 +1111,10 @@ INVALID_AUTHORITY (0x19):
 MALFORMED_AUTHORITY (0x1A):
 : The AUTHORITY value is syntactically invalid.
 
+FLOW_CONTROL_EXCEEDED (0x1B):
+: The peer violated a subscription flow control limit (MAX_SUB_STREAMS or
+  MAX_SUB_BYTES).
+
 An endpoint MAY choose to treat a subscription or request specific error as a
 session error under certain circumstances, closing the entire session in
 response to a condition with a single subscription or message. Implementations
@@ -1963,6 +1967,12 @@ new request stream.
 |--------|-----------------------------------------------|----------------|
 | 0xF    | PUBLISH_BLOCKED ({{message-publish-blocked}}) | Request        |
 |--------|-----------------------------------------------|----------------|
+| 0x12   | SUB_STREAMS_BLOCKED ({{message-sub-streams-blocked}}) | Request |
+|--------|-----------------------------------------------|----------------|
+| 0x13   | SUB_BYTES_BLOCKED ({{message-sub-bytes-blocked}}) | Request    |
+|--------|-----------------------------------------------|----------------|
+| 0x1F   | SUBGROUP_RESET ({{message-subgroup-reset}})   | Request        |
+|--------|-----------------------------------------------|----------------|
 | 0x2    | REQUEST_UPDATE ({{message-request-update}})   | Request        |
 |--------|-----------------------------------------------|----------------|
 | 0x7    | REQUEST_OK ({{message-request-ok}})           | Request        |
@@ -2420,6 +2430,46 @@ to the Largest Group, it does not send a NEW_GROUP_REQUEST upstream.
 
 After sending a NEW_GROUP_REQUEST upstream, the request is considered
 outstanding until the Largest Group increases.
+
+### MAX SUB STREAMS Parameter {#max-sub-streams}
+
+The MAX_SUB_STREAMS parameter (Parameter Type 0x33) is a varint. It MAY appear
+in a SUBSCRIBE, PUBLISH_OK, or REQUEST_UPDATE (for a subscription) message.
+
+It sets or updates the limit on the total number of subgroup streams the
+publisher can open for the subscription. In SUBSCRIBE or PUBLISH_OK, the value
+is the initial stream limit. In REQUEST_UPDATE, the value is additive: it
+grants additional streams beyond the current limit.
+
+If this parameter is omitted from SUBSCRIBE or PUBLISH_OK, there is no stream
+limit for the subscription. If the parameter was not present in SUBSCRIBE or
+PUBLISH_OK, REQUEST_UPDATE MUST NOT include it.
+
+A publisher that exceeds the stream limit SHOULD send a SUB_STREAMS_BLOCKED
+message ({{message-sub-streams-blocked}}) to indicate it has reached the limit.
+An endpoint that detects a violation of this limit MUST close the session with
+`FLOW_CONTROL_EXCEEDED`.
+
+### MAX SUB BYTES Parameter {#max-sub-bytes}
+
+The MAX_SUB_BYTES parameter (Parameter Type 0x34) is a varint. It MAY appear
+in a SUBSCRIBE, PUBLISH_OK, or REQUEST_UPDATE (for a subscription) message.
+
+It sets or updates the limit on the total number of bytes the publisher can
+send across all subgroup streams for the subscription. The byte count includes
+serialized bytes on subgroup streams (SUBGROUP_HEADER and object data
+including payload), but not transport framing. In SUBSCRIBE or PUBLISH_OK, the
+value is the initial byte limit. In REQUEST_UPDATE, the value is additive: it
+grants additional bytes beyond the current limit.
+
+If this parameter is omitted from SUBSCRIBE or PUBLISH_OK, there is no byte
+limit for the subscription. If the parameter was not present in SUBSCRIBE or
+PUBLISH_OK, REQUEST_UPDATE MUST NOT include it.
+
+A publisher that exceeds the byte limit SHOULD send a SUB_BYTES_BLOCKED
+message ({{message-sub-bytes-blocked}}) to indicate it has reached the limit.
+An endpoint that detects a violation of this limit MUST close the session with
+`FLOW_CONTROL_EXCEEDED`.
 
 ## SETUP {#message-setup}
 
@@ -3469,6 +3519,68 @@ PUBLISH_BLOCKED Message {
   'Track Namespace Prefix' specified in {message-subscribe-ns}.
 
 * Track Name: Identifies the track name as defined in ({{track-name}}).
+
+## SUBGROUP_RESET {#message-subgroup-reset}
+
+A publisher sends a `SUBGROUP_RESET` message on the subscription's request
+stream to report the final byte count of a subgroup stream that was reset.
+This allows the subscriber to accurately account for bytes consumed against
+the MAX_SUB_BYTES limit ({{max-sub-bytes}}).
+
+A publisher MAY send SUBGROUP_RESET for any subscription at its discretion,
+regardless of whether flow control limits are in use.
+
+~~~
+SUBGROUP_RESET Message {
+  Type (vi64) = 0x1F,
+  Length (16),
+  Group ID (vi64),
+  Subgroup ID (vi64),
+  Final Size (vi64),
+}
+~~~
+{: #moq-transport-subgroup-reset-format title="MOQT SUBGROUP_RESET Message"}
+
+* Group ID: The Group ID of the reset subgroup stream.
+
+* Subgroup ID: The Subgroup ID of the reset subgroup stream.
+
+* Final Size: The total number of bytes sent on the subgroup stream before it
+  was reset.
+
+## SUB_STREAMS_BLOCKED {#message-sub-streams-blocked}
+
+A publisher sends a `SUB_STREAMS_BLOCKED` message on the subscription's
+request stream to signal that it has reached the MAX_SUB_STREAMS limit
+({{max-sub-streams}}) and cannot open additional subgroup streams.
+
+~~~
+SUB_STREAMS_BLOCKED Message {
+  Type (vi64) = 0x12,
+  Length (16),
+  Maximum Streams (vi64),
+}
+~~~
+{: #moq-transport-sub-streams-blocked-format title="MOQT SUB_STREAMS_BLOCKED Message"}
+
+* Maximum Streams: The stream limit that was reached.
+
+## SUB_BYTES_BLOCKED {#message-sub-bytes-blocked}
+
+A publisher sends a `SUB_BYTES_BLOCKED` message on the subscription's request
+stream to signal that it has reached the MAX_SUB_BYTES limit
+({{max-sub-bytes}}) and cannot send additional data.
+
+~~~
+SUB_BYTES_BLOCKED Message {
+  Type (vi64) = 0x13,
+  Length (16),
+  Maximum Bytes (vi64),
+}
+~~~
+{: #moq-transport-sub-bytes-blocked-format title="MOQT SUB_BYTES_BLOCKED Message"}
+
+* Maximum Bytes: The byte limit that was reached.
 
 
 # Data Streams and Datagrams {#data-streams}
@@ -4605,6 +4717,8 @@ Setup Options SHOULD request a provisional registration.
 | 0x21 | SUBSCRIPTION_FILTER | {{subscription-filter}} |
 | 0x22 | GROUP_ORDER | {{group-order}} |
 | 0x32 | NEW_GROUP_REQUEST | {{new-group-request}} |
+| 0x33 | MAX_SUB_STREAMS | {{max-sub-streams}} |
+| 0x34 | MAX_SUB_BYTES | {{max-sub-bytes}} |
 
 * Message Parameters - List which params can be repeated in the table.
 
@@ -4671,6 +4785,7 @@ the length field.
 | EXPIRED_AUTH_TOKEN         | 0x18 | {{session-termination}} |
 | INVALID_AUTHORITY          | 0x19 | {{session-termination}} |
 | MALFORMED_AUTHORITY        | 0x1A | {{session-termination}} |
+| FLOW_CONTROL_EXCEEDED      | 0x1B | {{session-termination}} |
 | Reserved for greasing      | 0x7f * N + 0x9D | {{grease}} |
 
 ### REQUEST_ERROR Codes {#iana-request-error}
