@@ -1425,7 +1425,7 @@ request an existing Group or wait for a future Group.  Different applications
 will have different approaches for when to begin a new Group.
 
 To join a Track at the current Group, including content already published in
-that Group, the subscriber sends a SUBSCRIBE with Filter Type
+that Group, the subscriber sends a SUBSCRIBE, REQUEST_UPDATE or PUBLSH_OK with Filter Type
 `CurrentGroupFill`. The publisher delivers all Objects from the beginning of the
 Group, both cached and live, using subscription-style (subgroup/datagram)
 delivery. If the publisher is unable to serve the current Group, SUBSCRIBE_OK
