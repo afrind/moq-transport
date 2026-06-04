@@ -1709,6 +1709,69 @@ fill fetch streams associated with a cancelled subscription.
 The fill fetch stream is closed with a FIN after all past objects up to the
 fill boundary ({LARGEST_OBJECT, 0} from SUBSCRIBE_OK) have been delivered.
 
+## Track Switching {#track-switching}
+
+A subscriber can atomically stop delivery on one subscription (the suspend
+subscription) and start delivery on another (the resume subscription) by
+including the SWITCH_FROM parameter ({{switch-from}}) in a SUBSCRIBE,
+PUBLISH_OK, or REQUEST_UPDATE on the resume subscription's bidi stream.
+This enables track switching (e.g., ABR quality changes, alternate camera
+angles, or meeting participants) without tearing down subscriptions or
+issuing standalone fetches.
+
+The suspend subscription is identified by the Switch From Request ID in
+the SWITCH_FROM parameter. The resume subscription is the one on whose
+stream the SUBSCRIBE, PUBLISH_OK, or REQUEST_UPDATE is sent.
+
+On receiving a SUBSCRIBE, PUBLISH_OK, or REQUEST_UPDATE containing
+SWITCH_FROM, the publisher:
+
+1. Validates that Switch From Request ID identifies an existing subscription
+   and is not the same as the resume subscription's Request ID. If not,
+   responds with REQUEST_ERROR `INVALID_REQUEST_ID`.
+
+2. Waits until it is ready to publish an object from the SUBSCRIPTION_FILTER's
+   Start Location's Group (see {{subscription-filters}}), computed from the
+   resume track at the time the request is received, while continuing to
+   deliver objects on the suspend subscription.
+
+3. Stops delivery on the suspend subscription and activates the resume
+   subscription by setting Forward State 1 and applying the
+   SUBSCRIPTION_FILTER. If the SUBSCRIPTION_FILTER is a fill filter type,
+   opens a fill fetch stream using the resume subscription's Request ID
+   (see {{fill-semantics}}).
+
+   * Mode 1 (Hard): sets Forward State 0 on the suspend subscription and
+     cancels any outstanding data. Objects already in flight MAY still be
+     received by the subscriber.
+
+   * Mode 0 (Soft): updates the suspend subscription's End Group to the
+     group immediately preceding the start group; delivery continues until
+     that group is reached. Outstanding fill fetch streams on the suspend
+     subscription are not cancelled. This mode is most useful when the
+     suspend and resume tracks are group-aligned (i.e., share group
+     boundaries), ensuring a clean handoff between tracks.
+
+   If Publish Done is 1, the publisher sends PUBLISH_DONE on the suspend
+   subscription after the switch; otherwise the suspend subscription
+   remains established.
+
+4. Responds with SUBSCRIBE_OK or REQUEST_OK as appropriate, including
+   LARGEST_OBJECT if the SUBSCRIPTION_FILTER is a fill filter type.
+
+If the publisher times out waiting to be ready to publish an object from
+the start group on the resume track, it MUST respond with REQUEST_ERROR
+`TIMEOUT`.
+
+### Relay Handling of SWITCH_FROM {#relay-switch-from}
+
+When a relay receives a message containing SWITCH_FROM, it MUST NOT
+forward the SWITCH_FROM parameter upstream. The relay handles the switch
+locally, applying the start group computation from {{track-switching}}
+using its locally observed state for the resume track and servicing any
+fill fetch stream from its cache and upstream sources as described in
+{{fill-semantics}} and {{current-group-delivery}}.
+
 # Namespace Discovery {#track-discovery}
 
 Discovery of MOQT servers is always done out-of-band. Namespace discovery can be
@@ -2630,6 +2693,37 @@ close the session with `PROTOCOL_VIOLATION`.
 
 If omitted from SUBSCRIBE, the publisher's preference from
 the Track is used. If omitted from FETCH, the receiver uses Ascending (0x1).
+
+### SWITCH_FROM Parameter {#switch-from}
+
+The SWITCH_FROM parameter (Parameter Type 0x23) consists of two consecutive
+varints. It MAY appear in a SUBSCRIBE, PUBLISH_OK, or REQUEST_UPDATE (for a
+subscription) message.
+
+~~~
+SWITCH_FROM {
+  Switch From Request ID (vi64),
+  Mode (1),
+  Publish Done (1),
+  Reserved (6),
+}
+~~~
+
+* Switch From Request ID: The Request ID of the subscription to suspend.
+
+* Mode: If 1 (Hard), sets Forward State 0 on the suspend subscription and
+  cancels any outstanding data. If 0 (Soft), updates the suspend
+  subscription's End Group to the group immediately preceding the start
+  group.
+
+* Publish Done: If 1, the publisher sends PUBLISH_DONE on the suspend
+  subscription after the switch.
+
+* Reserved: MUST be 0. An endpoint that receives a non-zero value MUST
+  close the session with `PROTOCOL_VIOLATION`.
+
+When present, the enclosing SUBSCRIBE or REQUEST_UPDATE initiates a track
+switch as described in {{track-switching}}.
 
 ### SUBSCRIPTION FILTER Parameter {#subscription-filter}
 
@@ -5015,6 +5109,7 @@ Setup Options SHOULD request a provisional registration.
 | 0x20 | SUBSCRIBER_PRIORITY | {{subscriber-priority}} |
 | 0x21 | SUBSCRIPTION_FILTER | {{subscription-filter}} |
 | 0x22 | GROUP_ORDER | {{group-order}} |
+| 0x23 | SWITCH_FROM | {{switch-from}} |
 | 0x32 | NEW_GROUP_REQUEST | {{new-group-request}} |
 | 0x34 | TRACK_NAMESPACE_PREFIX | {{track-namespace-prefix-param}} |
 
