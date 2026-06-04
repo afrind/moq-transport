@@ -2306,6 +2306,8 @@ new request stream.
 |--------|------------------------------------------------|------------------|
 | 0x2    | REQUEST_UPDATE ({{message-request-update}})    | Request          |
 |--------|------------------------------------------------|------------------|
+| 0x1B   | SWITCH_TO ({{message-switch-to}})              | Request          |
+|--------|------------------------------------------------|------------------|
 | 0x7    | REQUEST_OK ({{message-request-ok}})            | Request          |
 |--------|------------------------------------------------|------------------|
 | 0x5    | REQUEST_ERROR ({{message-request-error}})      | Request          |
@@ -2552,10 +2554,10 @@ for the same track.
 ### FILL TIMEOUT Parameter {#fill-timeout}
 
 The FILL_TIMEOUT parameter (Parameter Type 0x0A) MAY appear in a FETCH,
-SUBSCRIBE, or REQUEST_UPDATE (for a subscription) message. When present in a
-SUBSCRIBE or REQUEST_UPDATE with a fill filter type, it applies to the fill
-fetch stream.  If it is present in a SUBSCRIBE or REQUEST_UPDATE without a
-fill filter type, it is ignored.
+SUBSCRIBE, REQUEST_UPDATE (for a subscription), or SWITCH_TO message. When
+present in a SUBSCRIBE, REQUEST_UPDATE, or SWITCH_TO with a fill filter type,
+it applies to the fill fetch stream.  If it is present in a SUBSCRIBE,
+REQUEST_UPDATE, or SWITCH_TO without a fill filter type, it is ignored.
 
 It is the maximum total duration in milliseconds a relay SHOULD spend waiting
 for upstream sources to provide Objects that are not immediately available
@@ -2616,7 +2618,8 @@ the value 128.
 ### GROUP ORDER Parameter {#group-order}
 
 The GROUP_ORDER parameter (Parameter Type 0x22) is a uint8. It MAY appear in a
-SUBSCRIBE, PUBLISH_OK, or FETCH.
+SUBSCRIBE, PUBLISH_OK, FETCH, or SWITCH_TO. When present in SWITCH_TO, it
+applies only to the fill fetch stream.
 
 Its value indicates how to prioritize Objects from different groups within
 the same subscription (see {{priorities}}), or how to order Groups in a Fetch
@@ -2634,8 +2637,9 @@ the Track is used. If omitted from FETCH, the receiver uses Ascending (0x1).
 ### SUBSCRIPTION FILTER Parameter {#subscription-filter}
 
 The SUBSCRIPTION_FILTER parameter (Parameter Type 0x21) uses length-prefixed
-encoding. It MAY appear in a SUBSCRIBE, PUBLISH_OK or REQUEST_UPDATE (for a
-subscription) message. It is a Subscription Filter (see {{subscription-filters}}).
+encoding. It MAY appear in a SUBSCRIBE, PUBLISH_OK, REQUEST_UPDATE (for a
+subscription), or SWITCH_TO message. It is a Subscription Filter (see
+{{subscription-filters}}).
 
 Fill filter types (AbsoluteStartFill, AbsoluteRangeFill, RelativeStartFill)
 and CurrentGroup MUST NOT appear in PUBLISH_OK. A publisher that receives a
@@ -2650,6 +2654,7 @@ fill boundary.
 
 If omitted from SUBSCRIBE or PUBLISH_OK, the subscription is
 unfiltered.  If omitted from REQUEST_UPDATE, the value is unchanged.
+If omitted from SWITCH_TO, it is equivalent to Largest Object.
 
 ### EXPIRES Parameter {#expires}
 
@@ -3269,6 +3274,122 @@ REQUEST_OK will contain Track Namespace suffixes relative to the
 updated prefix.  Updating the prefix of a SUBSCRIBE_TRACKS has
 no effect on existing subscriptions.  If the subscriber is no longer
 interested it can cancel the corresponding bidirectional stream.
+
+## SWITCH_TO {#message-switch-to}
+
+A subscriber sends SWITCH_TO on an established subscription's bidi stream to
+stop delivery on that subscription and start delivery on a different,
+pre-existing subscription. This enables track switching (e.g., ABR
+quality changes, alternate camera angles, or meeting participants) without
+tearing down subscriptions or issuing standalone fetches.
+
+The subscription on whose stream SWITCH_TO is sent is called the suspend
+subscription; the subscription identified by Resume Request ID is called
+the resume subscription.
+
+The format of SWITCH_TO is as follows:
+
+~~~
+SWITCH_TO Message {
+  Type (vi64) = 0x1B,
+  Length (16),
+  Request ID (vi64),
+  Resume Request ID (vi64),
+  Hard Switch (vi64),
+  Number of Parameters (vi64),
+  Parameters (..) ...
+}
+~~~
+{: #moq-transport-switch-to-format title="MOQT SWITCH_TO Message"}
+
+* Request ID: See {{request-id}}. Fill fetch streams opened as a result of this
+  SWITCH_TO use this Request ID (see {{fill-semantics}}).
+
+* Resume Request ID: The Request ID of the subscription to activate.
+
+* Hard Switch: If 1, the suspend subscription is cancelled immediately when
+  the resume track is ready (see {{switch-to-semantics}}). If 0, the suspend
+  subscription's End Group is set to the group immediately preceding the
+  start group. An endpoint that receives a value other than 0 or 1 MUST
+  close the session with `PROTOCOL_VIOLATION`.
+
+* Parameters: The parameters are defined in {{message-params}}. The
+  SUBSCRIPTION_FILTER parameter ({{subscription-filter}}) specifies the
+  delivery range and mechanism for the resume subscription.
+
+The publisher MUST respond with exactly one REQUEST_OK or REQUEST_ERROR.
+When the SUBSCRIPTION_FILTER is a fill filter type, the REQUEST_OK MUST
+include a LARGEST_OBJECT parameter reflecting the resume subscription's
+largest object, establishing the fill boundary, identical to the behavior
+described in {{subscription-filters}} for SUBSCRIBE_OK.
+On failure, the publisher sends REQUEST_ERROR with an appropriate error code
+(e.g., `INVALID_REQUEST_ID`, `DUPLICATE_SUBSCRIPTION`, or `TIMEOUT`).
+
+### SWITCH_TO Semantics {#switch-to-semantics}
+
+On receiving SWITCH_TO the publisher:
+
+1. Validates that Resume Request ID identifies a subscription. The Resume
+   Request ID MUST be less than the SWITCH_TO Request ID, ensuring the
+   corresponding SUBSCRIBE was sent prior to this SWITCH_TO. Due to bidi
+   stream reordering, the resume subscription may not yet be visible to the
+   publisher; implementations SHOULD allow a brief grace period before
+   responding with REQUEST_ERROR `INVALID_REQUEST_ID`. If the resume
+   subscription already has Forward State 1, responds with REQUEST_ERROR
+   `DUPLICATE_SUBSCRIPTION`.
+
+2. Determines the start group from the SUBSCRIPTION_FILTER and waits until
+   it is ready to publish an object from that group on the resume track before
+   pausing the suspend subscription. While waiting, the publisher continues
+   to deliver objects on the suspend subscription.
+
+   * For AbsoluteStart, AbsoluteRange, AbsoluteStartFill, or
+     AbsoluteRangeFill: the start group is the Start Location group.
+
+   * For Next Group Start: the start group is LARGEST_OBJECT.Group + 1,
+     computed from the resume track at the time SWITCH_TO is received.
+
+   * For RelativeStartFill: the start group is LARGEST_OBJECT.Group - (N+1),
+     computed from the resume track at the time SWITCH_TO is received.
+     Since the start group is in the past, this condition is typically
+     satisfied immediately.
+
+   * For Largest Object, CurrentGroup, or no SUBSCRIPTION_FILTER: the start
+     group is LARGEST_OBJECT.Group from the resume track. This condition is
+     satisfied immediately.
+
+3. Stops delivery on the suspend subscription and activates the resume
+   subscription by setting Forward State 1 and applying the
+   SUBSCRIPTION_FILTER. If the SUBSCRIPTION_FILTER is a fill filter type,
+   opens a fill fetch stream using the SWITCH_TO Request ID
+   (see {{fill-semantics}}).
+
+   * Hard Switch 1: immediately sets Forward State 0 on the suspend
+     subscription and cancels any outstanding data. Objects already in
+     flight MAY still be received by the subscriber.
+
+   * Hard Switch 0: updates the suspend subscription's End Group to the
+     group immediately preceding the start group. Outstanding fill fetch
+     streams on the suspend subscription are not cancelled.
+
+4. Sends REQUEST_OK, including LARGEST_OBJECT if the SUBSCRIPTION_FILTER is
+   a fill filter type.
+
+If the publisher times out waiting to be ready to publish an object from
+the start group on the resume track, it MUST respond with REQUEST_ERROR
+`TIMEOUT`.
+A pending REQUEST_UPDATE on the resume subscription's stream received
+concurrently with SWITCH_TO results in unspecified behavior; the subscriber
+MUST NOT send REQUEST_UPDATE on the resume subscription's stream while a
+SWITCH_TO referencing it is outstanding.
+
+### Relay Handling of SWITCH_TO {#relay-switch-to}
+
+When a relay receives SWITCH_TO, it MUST NOT forward the message upstream.
+The relay applies the start group computation from {{switch-to-semantics}}
+using its locally observed state for the resume track, servicing any fill
+fetch stream from its cache and upstream sources as described in
+{{fill-semantics}} and {{current-group-delivery}}.
 
 ## PUBLISH {#message-publish}
 
