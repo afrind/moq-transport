@@ -1745,31 +1745,26 @@ SWITCH_FROM, the publisher:
      cancels any outstanding data. Objects already in flight MAY still be
      received by the subscriber.
 
-   * Mode 0 (Auto): the publisher compares the Group of the suspend
-     subscription's Largest Object (the suspend Largest Group) to the Start
-     Group:
-
-     - If the suspend Largest Group is less than the Start Group, it performs
-       a soft stop: setting the suspend subscription's End Group to Start
-       Group - 1 and continuing delivery until that group is reached.
-       Outstanding fill fetch streams on the suspend subscription are not
-       cancelled. This gives a clean handoff when the suspend and resume
-       tracks are group-aligned (i.e., share group boundaries).
-
-     - Otherwise (the suspend Largest Group is greater than or equal to the
-       Start Group), it performs a hard stop as in Mode 1.
+   * Mode 0 (Soft): updates the suspend subscription's End Group to Start
+     Group - 1; delivery continues until that group is reached. The
+     publisher also resets any outstanding suspend data for groups greater
+     than or equal to the Start Group; objects already in flight can still
+     arrive. Outstanding fill fetch streams on the suspend subscription are
+     not cancelled. This mode is most useful when the suspend and resume
+     tracks are group-aligned (i.e., share group boundaries), ensuring a
+     clean handoff between tracks.
 
    If Publish Done is 1, the publisher sends PUBLISH_DONE on the suspend
-   subscription; otherwise the suspend subscription remains established. For a
-   hard stop, PUBLISH_DONE is sent after the switch. For a soft stop, it is
-   sent after the final Object in Start Group - 1, if signaled by the
+   subscription; otherwise the suspend subscription remains established. For
+   a hard switch, PUBLISH_DONE is sent after the switch. For a soft switch,
+   it is sent after the final Object in Start Group - 1, if signaled by the
    publisher, or after an implementation-specific timeout.
 
 4. Responds with SUBSCRIBE_OK or REQUEST_OK as appropriate, including
    LARGEST_OBJECT if the SUBSCRIPTION_FILTER is a fill filter type.
 
 If the publisher times out waiting to be ready to publish an object from
-the start group on the resume track, it MUST respond with REQUEST_ERROR
+the Start Group on the resume track, it MUST respond with REQUEST_ERROR
 `TIMEOUT`.
 
 ### Relay Handling of SWITCH_FROM {#relay-switch-from}
@@ -2720,10 +2715,10 @@ SWITCH_FROM {
 
 * Switch From Request ID: The Request ID of the subscription to suspend.
 
-* Mode: If 1 (Hard), the publisher hard-stops the suspend subscription
-  (Forward State 0, cancelling outstanding data). If 0 (Auto), the publisher
-  chooses between a soft stop and a hard stop based on the suspend
-  subscription's progress (see {{track-switching}}).
+* Mode: If 1 (Hard), sets Forward State 0 on the suspend subscription and
+  cancels any outstanding data. If 0 (Soft), updates the suspend
+  subscription's End Group to the group immediately preceding the start
+  group.
 
 * Publish Done: If 1, the publisher sends PUBLISH_DONE on the suspend
   subscription after the switch.
