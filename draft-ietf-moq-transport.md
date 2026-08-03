@@ -698,7 +698,10 @@ include:
 4. An Object is received in a Group whose Object ID is larger than the final
    Object in the Group.  The final Object in a Group is the Object identified by
    the Largest Object ID reported in an END_OF_GROUP ({{message-end-of-group}})
-   or END_OF_TRACK ({{message-end-of-track}}) message for that Group.  If the
+   or END_OF_TRACK ({{message-end-of-track}}) message for that Group, the Object
+   in a datagram with the END_OF_GROUP bit set, or the last Object before a FIN
+   in a Subgroup which has the END_OF_GROUP bit set.  If two of these signals
+   disagree about the final Object, the Track is malformed.  If the
    end of a Group is implicitly determined via a gap in a FETCH response, the
    final Object in the Group remains unknown.
 5. An Object is received whose Group and Object ID are larger than the final
@@ -1213,7 +1216,7 @@ the type of the stream.
 |------------:|:------------------------------------------------|
 | 0x05        | FETCH_HEADER  ({{fetch-header}})                |
 |-------------|-------------------------------------------------|
-| 0b0XX10XXX  | SUBGROUP_HEADER  ({{subgroup-header}})          |
+| 0b0XX1XXXX  | SUBGROUP_HEADER  ({{subgroup-header}})          |
 |-------------|-------------------------------------------------|
 | 0x2F00      | SETUP ({{message-setup}})                       |
 |-------------|-------------------------------------------------|
@@ -1558,8 +1561,8 @@ Both counts describe what the publisher sent on one subscription rather than
 what exists in the Track. A relay MUST compute them for each downstream
 subscription rather than forwarding the values it received upstream, because the
 number of streams it opens and datagrams it sends can differ from the number it
-received, for example when it re-packs Subgroups or applies a subscriber's
-filters.
+received, for example when a delivery timeout ({{delivery-timeouts}}) causes it
+to omit a Subgroup, or when it applies a subscriber's filters.
 
 If the publisher opened no data streams or sent no datagrams within the scope,
 it MUST set the corresponding count to 0. If the publisher is unable to set a
@@ -1569,11 +1572,12 @@ it MAY close the session with a `PROTOCOL_VIOLATION`.
 
 Once a receiver has observed Stream Count streams within a scope, and each has
 been either FINed or reset, it knows the publisher will open no further streams
-in that scope and that it has every Object delivered on the FINed streams.
-Datagram Count does not provide an equivalent guarantee, because a lost datagram
-is never retransmitted and therefore might never arrive. A receiver uses
-Datagram Count to determine how many Objects it did not receive, and relies on a
-timeout to decide it will receive no more.
+in that scope and that it has every Object delivered on the FINed streams. A
+receiver that has also received Datagram Count datagrams has everything the
+publisher sent in that scope, and can release its state immediately rather than
+waiting for a timeout. If fewer datagrams arrive, the difference is the number
+of Objects that were lost; because a lost datagram is never retransmitted, the
+receiver relies on a timeout to decide it will receive no more.
 
 A publisher MUST NOT send a message carrying these counts for a scope until it
 has opened every data stream and sent every datagram it will send within that
@@ -1583,15 +1587,15 @@ send further datagrams within that scope.
 Because these messages are sent on the subscription's request stream, they can
 arrive before Objects that are still in flight on data streams or in datagrams.
 Receipt of one therefore does not mean the receiver has all of the data in the
-scope, and does not permit it to close data streams (see
-{{closing-subgroup-streams}}).
+scope, and does not on its own allow it to release state for the scope. The
+counts, not the arrival of the message, tell the receiver when it is done.
 
 Streams and datagrams in Groups for which the publisher sends no END_OF_GROUP or
 END_OF_TRACK, including a Group that the subscription ends part way through, are
-accounted for only in PUBLISH_DONE. Accordingly, the sum of the Stream Counts of
-all END_OF_GROUP and END_OF_TRACK messages sent on a subscription MUST NOT
-exceed the Stream Count of its PUBLISH_DONE, and likewise for Datagram Count.
-This constraint does not apply if any of the counts involved is 2^64 - 1.
+accounted for only in PUBLISH_DONE. Accordingly, the Stream Counts of all
+END_OF_GROUP and END_OF_TRACK messages sent on a subscription MUST NOT sum to
+more than the Stream Count of its PUBLISH_DONE. The same constraint applies to
+Datagram Count. Neither applies if any of the counts involved is 2^64 - 1.
 
 ### Location Filters {#location-filters}
 
@@ -2162,8 +2166,9 @@ where it's redundant.
 The end of a Group and the end of a Track are properties of the Track rather
 than of any single Object, and a relay caches them as metadata associated with
 the Full Track Name and, for the end of a Group, the Group ID.  The Stream Count
-and Datagram Count in END_OF_GROUP and END_OF_TRACK are not Track properties and
-MUST NOT be cached or forwarded; see {{data-counts}}.
+and Datagram Count in END_OF_GROUP and END_OF_TRACK are specific to a
+subscription, not the Track, and MUST NOT be cached or forwarded; see
+{{data-counts}}.
 
 A relay that knows a Group has ended SHOULD send END_OF_GROUP for that Group to
 each downstream subscription, whether it learned this from an upstream
@@ -3571,13 +3576,52 @@ A publisher MUST NOT send END_OF_GROUP for the same Group more than once on the
 same subscription. A subscriber that detects this MUST close the session with a
 `PROTOCOL_VIOLATION`.
 
+### End of Group Signals {#end-of-group-signals}
+
+The end of a Group can also be conveyed in the data plane, by the END_OF_GROUP
+bit in a SUBGROUP_HEADER ({{subgroup-header}}) or an OBJECT_DATAGRAM
+({{object-datagram}}). These bits identify the final Object in the Group but
+carry no counts, and cost no additional bytes. A publisher that sends a Group as
+a single stream or a single datagram can therefore end it without sending an
+END_OF_GROUP message, for which the counts would always be 1.
+
+A publisher MAY use either signal or both. It SHOULD send the END_OF_GROUP
+message when a Group spans more than one stream or datagram, because only the
+message tells the subscriber how many to expect; the bits identify the final
+Object but not whether every Subgroup of the Group has been received.
+
+When a publisher uses both for the same Group, they MUST agree: the Largest
+Object ID in the END_OF_GROUP message MUST equal the Object ID of the Object
+carrying the END_OF_GROUP bit in a datagram, or of the last Object before the
+FIN on a subgroup stream whose header has the END_OF_GROUP bit set. A subscriber
+that receives inconsistent values MUST treat the Track as malformed (see
+{{malformed-tracks}}).
+
+A relay MAY convert between these representations, subject to
+{{caching-relays}}. Because the counts are specific to a subscription, a relay
+that forwards a Group it received as a single datagram or stream over several
+downstream streams needs to send an END_OF_GROUP message with the counts it
+used, rather than relying on the bit alone.
+
 ## END_OF_TRACK {#message-end-of-track}
 
-An `END_OF_TRACK` message has Type 0xA and the same fields as END_OF_GROUP
-({{message-end-of-group}}), and ends the Group it names in the same way. It
+An `END_OF_TRACK` message has the same fields as END_OF_GROUP
+({{message-end-of-group}}) and ends the Group it names in the same way. It
 additionally indicates that no Group in the Track with a larger Group ID exists,
 making the Location formed by Group ID and Largest Object ID the final Object in
 the Track.
+
+~~~
+END_OF_TRACK Message {
+  Type (vi64) = 0xA,
+  Length (16),
+  Group ID (vi64),
+  Largest Object ID (vi64),
+  Stream Count (vi64),
+  Datagram Count (vi64),
+}
+~~~
+{: #moq-transport-end-of-track-format title="MOQT END_OF_TRACK Message"}
 
 A publisher MUST NOT send both END_OF_TRACK and END_OF_GROUP for the same Group,
 and MUST NOT send END_OF_TRACK more than once on a subscription. A subscriber
@@ -4233,12 +4277,14 @@ according to its `Object Forwarding Preference`.
 * Object Payload: An opaque payload intended for an End Subscriber and SHOULD
 NOT be processed by a relay. The payload can be zero length.
 
-An Object does not carry any in-band indication that it is the final Object in
-a Group or Track. The end of a Subgroup is signaled by closing its stream with a
-FIN (see {{closing-subgroup-streams}}). The end of a Group or Track in a
-subscription is signaled by the END_OF_GROUP ({{message-end-of-group}}) and
-END_OF_TRACK ({{message-end-of-track}}) messages, and in a FETCH by the End of
-Range indicators ({{end-of-range}}) and the End Of Track field of FETCH_OK
+An Object carries no field indicating that it is the final Object in a Group or
+Track. The end of a Subgroup is signaled by closing its stream with a FIN (see
+{{closing-subgroup-streams}}). In a subscription, the end of a Group is signaled
+by the END_OF_GROUP message ({{message-end-of-group}}) or by the END_OF_GROUP
+bit in a SUBGROUP_HEADER or OBJECT_DATAGRAM, and the end of a Track by the
+END_OF_TRACK message ({{message-end-of-track}}); see
+{{end-of-group-signals}}. In a FETCH, both are signaled by the End of Range
+indicators ({{end-of-range}}) and the End Of Track field of FETCH_OK
 ({{message-fetch-ok}}).
 
 #### Object Properties {#object-properties}
@@ -4313,8 +4359,8 @@ single-byte encoding (values less than 128). If a received value has bit 4 set,
 or has a bit set whose meaning is not specified, the endpoint MUST close the
 session with a `PROTOCOL_VIOLATION`.
 
-Bits 0, 2 and 3 of the Type Flags field determine which fields are present in
-the datagram:
+The four low-order bits of the Type Flags field determine which fields are
+present in the datagram:
 
 * The **PROPERTIES** bit (0x01) indicates when the Properties field is
   present. When set to 1, the Object Properties structure defined in
@@ -4322,6 +4368,10 @@ the datagram:
   If an endpoint receives a datagram with the PROPERTIES bit set and an
   Properties Length of 0, it MUST close the session with a
   `PROTOCOL_VIOLATION`.
+
+* The **END_OF_GROUP** bit (0x02) indicates End of Group. When set to 1, this
+  indicates that no Object with the same Group ID and an Object ID greater than
+  the Object ID in this datagram exists. See {{end-of-group-signals}}.
 
 * The **ZERO_OBJECT_ID** bit (0x04) indicates when the Object ID field is
   present.  When set to 1, the Object ID field is omitted and the Object ID
@@ -4395,7 +4445,7 @@ The Type Flags field in the SUBGROUP_HEADER is a variable-length integer that
 encodes a set of flags. All values defined in this specification fit in a
 single-byte encoding (values less than 128).
 
-Bit 4 is always set to 1. The three low-order bits and bits 5-6 determine which
+Bit 4 is always set to 1. The four low-order bits and bits 5-6 determine which
 fields are present in the header:
 
 * The **PROPERTIES** bit (0x01) indicates when the Properties field is present
@@ -4413,6 +4463,13 @@ fields are present in the header:
   * 0b10: The Subgroup ID field is present in the header.
   * 0b11: Reserved for future use.
 
+* The **END_OF_GROUP** bit (0x08) indicates that this subgroup contains the
+  largest Object in the Group. When set to 1, the subscriber can infer the final
+  Object in the Group when the data stream is terminated by a FIN. In this case,
+  Objects that have the same Group ID and an Object ID larger than the last
+  Object received on the stream do not exist. This does not apply when the data
+  stream is reset. See {{end-of-group-signals}}.
+
 * The **DEFAULT_PRIORITY** bit (0x20) indicates when the Priority field is
   present. When set to 1, the Priority field is omitted and this Subgroup
   inherits the Publisher Priority specified in the control message that
@@ -4428,8 +4485,6 @@ header with any of these values, it MUST close the session with a
 
 * Values with SUBGROUP_ID_MODE set to 0b11. This mode
   is reserved for future use.
-
-* Values with bit 3 (0x08) set. This bit is reserved and MUST be zero.
 
 * Values where bit 4 is not set. Bit 4 MUST be 1 for SUBGROUP_HEADER.
 
