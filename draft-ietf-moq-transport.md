@@ -1207,8 +1207,62 @@ previous MOQT messages besides SETUP. However, SUBSCRIBE_NAMESPACE, SUBSCRIBE_TR
 PUBLISH_NAMESPACE messages provide an in-band means of discovery of publishers
 for a namespace.
 
+While PUBLISH_NAMESPACE indicates to relays how to connect publishers and
+subscribers, it is not a full-fledged routing protocol and does not protect
+against loops and other phenomena. In particular, PUBLISH_NAMESPACE SHOULD NOT
+be used to find paths through richly connected networks of relays.
+
 The syntax of these messages is described in {{message}}.
 
+
+## Publishing Namespaces
+
+A publisher MAY send PUBLISH_NAMESPACE messages to any subscriber. A
+PUBLISH_NAMESPACE indicates to the subscriber that the publisher has tracks
+available in namespaces matching the Track Namespace Prefix it carries (see
+{{namespace-prefix-matching}}). A subscriber MAY send SUBSCRIBE or FETCH for
+tracks in a namespace without having received a PUBLISH_NAMESPACE for it.
+
+The receiver verifies the publisher is authorized to publish tracks under this
+prefix.
+
+If a publisher is the Original Publisher for one or more tracks in a given
+namespace, or is a relay that has received an authorized PUBLISH_NAMESPACE for
+that namespace from an upstream publisher, it MUST send a NAMESPACE message
+that includes this namespace to any subscriber that has sent a
+SUBSCRIBE_NAMESPACE whose prefix matches this namespace.
+
+A subscriber can receive a PUBLISH_NAMESPACE on a request stream for a
+namespace that falls within an active SUBSCRIBE_NAMESPACE prefix. This
+occurs when SUBSCRIBE_NAMESPACE or its response is in flight at the same time
+as a PUBLISH_NAMESPACE, or when an original publisher sends PUBLISH_NAMESPACE
+to advertise namespaces within the prefix being discovered. Such a
+PUBLISH_NAMESPACE is valid and MAY carry an AUTHORIZATION TOKEN parameter.
+Its lifetime is independent of the SUBSCRIBE_NAMESPACE stream.
+
+An endpoint SHOULD report the reception of a PUBLISH_NAMESPACE_OK or
+PUBLISH_NAMESPACE_ERROR to the application to inform the search for additional
+subscribers for a namespace, or to abandon the attempt to publish under this
+namespace. A subscriber MUST send exactly one PUBLISH_NAMESPACE_OK or
+PUBLISH_NAMESPACE_ERROR as the first message on the bidi stream in response to
+a PUBLISH_NAMESPACE. The publisher SHOULD close the session with a protocol
+error if it receives more than one.
+
+A PUBLISH_NAMESPACE is withdrawn by cancelling the request
+(see {{request-cancellation}}), although it is not a protocol error for
+the subscriber to send a SUBSCRIBE or FETCH message for a track in a
+namespace after the namespace is withdrawn.
+
+A subscriber can cancel the request (see {{request-cancellation}}) to revoke
+acceptance of a PUBLISH_NAMESPACE. If the reason for cancellation is expiration
+of authorization credentials, the publisher can send PUBLISH_NAMESPACE again
+on a new bidi stream with refreshed authorization, or close the stream and
+discard associated state.
+
+A subscriber MAY send a SUBSCRIBE or FETCH for a track to any publisher. If it
+has accepted a PUBLISH_NAMESPACE with a namespace that exactly matches the
+namespace for that track, it SHOULD only request it from the senders of those
+PUBLISH_NAMESPACE messages.
 
 ## Subscribing to Namespaces {#subscribing-to-namespaces}
 
@@ -1275,61 +1329,6 @@ a subscriber receives a stream reset or FIN on a SUBSCRIBE_NAMESPACE response
 stream, it SHOULD treat this as though each active namespace received a
 NAMESPACE_DONE. Subscriptions established via PUBLISH on separate bidi streams
 are not affected by closure of the SUBSCRIBE_NAMESPACE stream.
-
-## Publishing Namespaces
-
-A publisher MAY send PUBLISH_NAMESPACE messages to any subscriber. A
-PUBLISH_NAMESPACE indicates to the subscriber that the publisher has tracks
-available in namespaces matching the Track Namespace Prefix it carries (see
-{{namespace-prefix-matching}}). A subscriber MAY send SUBSCRIBE or FETCH for
-tracks in a namespace without having received a PUBLISH_NAMESPACE for it.
-
-The receiver verifies the publisher is authorized to publish tracks under this
-prefix.
-
-If a publisher is the Original Publisher for one or more tracks in a given
-namespace, or is a relay that has received an authorized PUBLISH_NAMESPACE for
-that namespace from an upstream publisher, it MUST send a NAMESPACE message
-that includes this namespace to any subscriber that has sent a
-SUBSCRIBE_NAMESPACE whose prefix matches this namespace.
-
-A subscriber can receive a PUBLISH_NAMESPACE on a request stream for a
-namespace that falls within an active SUBSCRIBE_NAMESPACE prefix. This
-occurs when SUBSCRIBE_NAMESPACE or its response is in flight at the same time
-as a PUBLISH_NAMESPACE, or when an original publisher sends PUBLISH_NAMESPACE
-to advertise namespaces within the prefix being discovered. Such a
-PUBLISH_NAMESPACE is valid and MAY carry an AUTHORIZATION TOKEN parameter.
-Its lifetime is independent of the SUBSCRIBE_NAMESPACE stream.
-
-An endpoint SHOULD report the reception of a PUBLISH_NAMESPACE_OK or
-PUBLISH_NAMESPACE_ERROR to the application to inform the search for additional
-subscribers for a namespace, or to abandon the attempt to publish under this
-namespace. A subscriber MUST send exactly one PUBLISH_NAMESPACE_OK or
-PUBLISH_NAMESPACE_ERROR as the first message on the bidi stream in response to
-a PUBLISH_NAMESPACE. The publisher SHOULD close the session with a protocol
-error if it receives more than one.
-
-A PUBLISH_NAMESPACE is withdrawn by cancelling the request
-(see {{request-cancellation}}), although it is not a protocol error for
-the subscriber to send a SUBSCRIBE or FETCH message for a track in a
-namespace after the namespace is withdrawn.
-
-A subscriber can cancel the request (see {{request-cancellation}}) to revoke
-acceptance of a PUBLISH_NAMESPACE. If the reason for cancellation is expiration
-of authorization credentials, the publisher can send PUBLISH_NAMESPACE again
-on a new bidi stream with refreshed authorization, or close the stream and
-discard associated state.
-
-While PUBLISH_NAMESPACE indicates to relays how to connect publishers and
-subscribers, it is not a full-fledged routing protocol and does not protect
-against loops and other phenomena. In particular, PUBLISH_NAMESPACE SHOULD NOT
-be used to find paths through richly connected networks of relays.
-
-A subscriber MAY send a SUBSCRIBE or FETCH for a track to any publisher. If it
-has accepted a PUBLISH_NAMESPACE with a namespace that exactly matches the
-namespace for that track, it SHOULD only request it from the senders of those
-PUBLISH_NAMESPACE messages.
-
 
 # Object Transmission
 
