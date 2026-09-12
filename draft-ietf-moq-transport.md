@@ -1089,6 +1089,69 @@ that starts at the Next Group and NEW_GROUP_REQUEST equal to 0.  The value of
 DYNAMIC_GROUPS in SUBSCRIBE_OK will indicate if the publisher supports dynamic
 groups. A publisher that does will begin the next group as soon as practical.
 
+## Subscribing to Tracks by Prefix {#subscribe-tracks}
+
+SUBSCRIBE_TRACKS requests track subscriptions: the publisher sends PUBLISH
+messages for tracks within matching namespaces, excluding tracks published
+by the subscriber.
+
+SUBSCRIBE_TRACKS is not required for a publisher to send PUBLISH messages to
+a subscriber.  It is useful for subscribers that are
+only interested in or authorized to access a subset of available tracks.
+
+The publisher will respond with SUBSCRIBE_TRACKS_OK or SUBSCRIBE_TRACKS_ERROR
+on the response half of the stream. If the subscriber receives any message
+other than a SUBSCRIBE_TRACKS_OK or a SUBSCRIBE_TRACKS_ERROR as the first
+message on the response half of the stream, then it MUST close the session with
+a PROTOCOL_VIOLATION. If the SUBSCRIBE_TRACKS is successful, the publisher will
+send PUBLISH messages on new bidirectional streams for tracks within matching
+namespaces. If it is an error, the stream will be closed via FIN after
+SUBSCRIBE_TRACKS_ERROR is sent.
+
+Within a session, if a publisher receives a SUBSCRIBE_TRACKS with a
+Track Namespace Prefix that shares a common prefix with an established
+SUBSCRIBE_TRACKS, it MUST respond with SUBSCRIBE_TRACKS_ERROR with error code
+`PREFIX_OVERLAP`.  SUBSCRIBE_TRACKS and SUBSCRIBE_NAMESPACE have independent
+overlap spaces (see {{subscribing-to-namespaces}}).
+
+The publisher MUST ensure the subscriber is authorized to perform this
+namespace subscription.
+
+Cancelling SUBSCRIBE_TRACKS does not prohibit original publishers
+from sending further PUBLISH messages, but relays MUST NOT
+send any further PUBLISH messages to a client without knowing the client is
+interested in and authorized to receive the content.
+
+### Filtering SUBSCRIBE_TRACKS
+
+Range Filters {{range-filters}} can be used in SUBSCRIBE_TRACKS to filter
+Tracks in a namespace using the Track Property Filter. Objects published in
+the resulting Subscriptions can be filtered by any Range Filter.
+
+### Parameters on SUBSCRIBE_TRACKS {#parameters-on-subscribe-tracks}
+
+Any Parameter that can be specified on a Subscription (ie: in SUBSCRIBE) is valid
+in SUBSCRIBE_TRACKS, unless otherwise specified. These parameters are used by the
+publisher as the initial Subscription parameters when a PUBLISH is sent as a result of
+SUBSCRIBE_TRACKS. These Parameters are explicitly communicated in PUBLISH.
+When omitted by the publisher in PUBLISH, the subscriber uses the default value for each.
+
+To join Tracks initiated via the resulting PUBLISHes, the subscriber can specify a
+Location Filter and optionally include FILL_PARAMETERS, as described in {{joining-tracks}}.
+
+### Skipped Tracks
+
+If a Subscription cannot be created because there are no available bidirectional
+streams or any other reason, the Publisher sends a PUBLISH_SKIPPED message on the
+SUBSCRIBE_TRACKS response stream to indicate the Full Track Name of the
+Subscription that was not created. The Publisher MUST NOT send a PUBLISH for a
+Track for a given SUBSCRIBE_TRACKS after PUBLISH_SKIPPED has been sent,
+scoped to a single PUBLISH.  If, for example, the publisher disconnects from
+a relay and later reconnects and sends a new PUBLISH, the relay MAY send the new
+PUBLISH downstream.
+If desired, the subscriber can issue a SUBSCRIBE to establish a subscription to
+that track.
+
 ## Mandatory to Understand Track Properties {#mandatory-track-properties}
 
 Property types in the range 0x4000-0x7FFF are designated as Mandatory Track
@@ -1155,10 +1218,6 @@ NAMESPACE and NAMESPACE_DONE messages for namespaces matching the prefix,
 including echoing back Track Namespaces under the prefix that have been published
 to it.
 
-SUBSCRIBE_TRACKS requests track subscriptions: the publisher sends PUBLISH
-messages for tracks within matching namespaces, excluding tracks published
-by the subscriber.
-
 Either message with zero Track Namespace fields indicates the sender is
 interested in all namespaces or all tracks from the receiver, respectively.
 
@@ -1171,27 +1230,12 @@ The subscriber sends SUBSCRIBE_NAMESPACE or SUBSCRIBE_TRACKS on a new
 bidirectional stream and the publisher MUST send a single REQUEST_OK or
 REQUEST_ERROR as the first message on the bidirectional stream in response.
 
-If a Subscription cannot be created because there are no available bidirectional
-streams or any other reason, the Publisher sends a PUBLISH_SKIPPED message on the
-SUBSCRIBE_TRACKS response stream to indicate the Full Track Name of the
-Subscription that was not created. The Publisher MUST NOT send a PUBLISH for a
-Track for a given SUBSCRIBE_TRACKS after PUBLISH_SKIPPED has been sent,
-scoped to a single PUBLISH.  If, for example, the publisher disconnects from
-a relay and later reconnects and sends a new PUBLISH, the relay MAY send the new
-PUBLISH downstream.
-If desired, the subscriber can issue a SUBSCRIBE to establish a subscription to
-that track.
-
 The receiver of a REQUEST_OK or REQUEST_ERROR ought to
 forward the result to the application, so the application can decide which other
 publishers to contact, if any.
 
 A SUBSCRIBE_NAMESPACE or SUBSCRIBE_TRACKS is cancelled as described in
 {{request-cancellation}}, by resetting or sending STOP_SENDING on the stream.
-Cancelling SUBSCRIBE_TRACKS does not prohibit original publishers
-from sending further PUBLISH messages, but relays MUST NOT
-send any further PUBLISH messages to a client without knowing the client is
-interested in and authorized to receive the content.
 
 ## Publishing Namespaces
 
@@ -1243,23 +1287,6 @@ A subscriber MAY send a SUBSCRIBE or FETCH for a track to any publisher. If it
 has accepted a PUBLISH_NAMESPACE with a namespace that exactly matches the
 namespace for that track, it SHOULD only request it from the senders of those
 PUBLISH_NAMESPACE messages.
-
-## Filtering SUBSCRIBE_TRACKS
-
-Range Filters {{range-filters}} can be used in SUBSCRIBE_TRACKS to filter
-Tracks in a namespace using the Track Property Filter. Objects published in
-the resulting Subscriptions can be filtered by any Range Filter.
-
-### Relay Resource Protection in Large Namespaces {#large-namespaces}
-
-Relays SHOULD aggregate and propagate filters upstream on subscriptions,
-especially namespace subscriptions,
-to conserve and protect their resources from excessive load.  They MAY
-also impose limits on the number of publishers in a namespace, by rejecting
-or closing namespace subscriptions with the error NAMESPACE_TOO_LARGE, or
-CONFLICTING_FILTERS if too many disjoint filters are requested on downstream
-subscriptions across a large number of subscribers, or PREFIX_OVERLAP if different
-subscribers force an aggregated upstream subscription to overlap.
 
 
 # Object Transmission
@@ -2012,6 +2039,17 @@ all `Established` subscriptions to the new relay. The new relay will send a
 response to the subscribes and if they are successful, the subscriptions
 to the old relay can be cancelled (see {{request-cancellation}}).
 
+
+## Relay Resource Protection in Large Namespaces {#large-namespaces}
+
+Relays SHOULD aggregate and propagate filters upstream on subscriptions,
+especially namespace subscriptions,
+to conserve and protect their resources from excessive load.  They MAY
+also impose limits on the number of publishers in a namespace, by rejecting
+or closing namespace subscriptions with the error NAMESPACE_TOO_LARGE, or
+CONFLICTING_FILTERS if too many disjoint filters are requested on downstream
+subscriptions across a large number of subscribers, or PREFIX_OVERLAP if different
+subscribers force an aggregated upstream subscription to overlap.
 
 ## Publisher Interactions
 
@@ -3577,39 +3615,6 @@ SUBSCRIBE_TRACKS Message {
   AUTHORIZATION_TOKEN, FORWARD, GROUP_ORDER, SUBGROUP_FILTER, OBJECTID_FILTER,
   PRIORITY_FILTER, OBJECT_PROPERTY_FILTER, TRACK_PROPERTY_FILTER and
   INCLUDE_PROPERTIES.
-
-The publisher will respond with SUBSCRIBE_TRACKS_OK or SUBSCRIBE_TRACKS_ERROR
-on the response half of the stream. If the subscriber receives any message
-other than a SUBSCRIBE_TRACKS_OK or a SUBSCRIBE_TRACKS_ERROR as the first
-message on the response half of the stream, then it MUST close the session with
-a PROTOCOL_VIOLATION. If the SUBSCRIBE_TRACKS is successful, the publisher will
-send PUBLISH messages on new bidirectional streams for tracks within matching
-namespaces. If it is an error, the stream will be closed via FIN after
-SUBSCRIBE_TRACKS_ERROR is sent.
-
-Within a session, if a publisher receives a SUBSCRIBE_TRACKS with a
-Track Namespace Prefix that shares a common prefix with an established
-SUBSCRIBE_TRACKS, it MUST respond with SUBSCRIBE_TRACKS_ERROR with error code
-`PREFIX_OVERLAP`.  SUBSCRIBE_TRACKS and SUBSCRIBE_NAMESPACE have independent
-overlap spaces (see {{message-subscribe-ns}}).
-
-The publisher MUST ensure the subscriber is authorized to perform this
-namespace subscription.
-
-SUBSCRIBE_TRACKS is not required for a publisher to send PUBLISH messages to
-a subscriber.  It is useful for subscribers that are
-only interested in or authorized to access a subset of available tracks.
-
-### Parameters on SUBSCRIBE_TRACKS {#parameters-on-subscribe-tracks}
-
-Any Parameter that can be specified on a Subscription (ie: in SUBSCRIBE) is valid
-in SUBSCRIBE_TRACKS, unless otherwise specified. These parameters are used by the
-publisher as the initial Subscription parameters when a PUBLISH is sent as a result of
-SUBSCRIBE_TRACKS. These Parameters are explicitly communicated in PUBLISH.
-When omitted by the publisher in PUBLISH, the subscriber uses the default value for each.
-
-To join Tracks initiated via the resulting PUBLISHes, the subscriber can specify a
-Location Filter and optionally include FILL_PARAMETERS, as described in {{joining-tracks}}.
 
 ## PUBLISH_SKIPPED {#message-publish-skipped}
 
