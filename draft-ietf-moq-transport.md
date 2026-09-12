@@ -1329,6 +1329,38 @@ stream, it SHOULD treat this as though each active namespace received a
 NAMESPACE_DONE. Subscriptions established via PUBLISH on separate bidi streams
 are not affected by closure of the SUBSCRIBE_NAMESPACE stream.
 
+## Namespace Discovery Example
+
+In the following example, a subscriber asks a relay for namespaces under a
+prefix, a publisher subsequently advertises a matching namespace to that relay,
+and the relay passes it on.  When the publisher withdraws its advertisement, the
+relay tells the subscriber the namespace is gone.
+
+~~~
+ Publisher                    Relay                   Subscriber
+     |                          |                          |
+     |                          |   SUBSCRIBE_NAMESPACE    |
+     |                          |        (example)         |
+     |                          |<-------------------------|
+     |                          |  SUBSCRIBE_NAMESPACE_OK  |
+     |    PUBLISH_NAMESPACE     |------------------------->|
+     |      (example-123)       |                          |
+     |------------------------->|                          |
+     |   PUBLISH_NAMESPACE_OK   |        NAMESPACE         |
+     |<-------------------------|          (123)           |
+     |                          |------------------------->|
+     | cancel PUBLISH_NAMESPACE |                          |
+     |------------------------->|                          |
+     |                          |      NAMESPACE_DONE      |
+     |                          |          (123)           |
+     |                          |------------------------->|
+     |                          |                          |
+~~~
+{: #namespace-discovery-flow title="Namespace discovery through a relay"}
+
+The NAMESPACE and NAMESPACE_DONE messages carry only the suffix `123`, because
+the prefix `example` is already known from the SUBSCRIBE_NAMESPACE.
+
 # Object Transmission
 
 ## Priorities {#priorities}
