@@ -1234,8 +1234,42 @@ The receiver of a REQUEST_OK or REQUEST_ERROR ought to
 forward the result to the application, so the application can decide which other
 publishers to contact, if any.
 
+The publisher will respond with SUBSCRIBE_NAMESPACE_OK or
+SUBSCRIBE_NAMESPACE_ERROR on the response half of the stream. If the subscriber
+receives any message other than a SUBSCRIBE_NAMESPACE_OK or a
+SUBSCRIBE_NAMESPACE_ERROR as the first message on the response half of the
+stream, then it MUST close the session with a PROTOCOL_VIOLATION. If the
+SUBSCRIBE_NAMESPACE is successful, the publisher will send matching NAMESPACE
+messages on the response stream. If it is an error, the stream will be
+immediately closed via FIN. When there are changes to the namespaces being
+published and the subscriber is subscribed to them, the publisher sends the
+corresponding NAMESPACE or NAMESPACE_DONE messages.
+
+Within a session, if a publisher receives a SUBSCRIBE_NAMESPACE with a
+Track Namespace Prefix that shares a common prefix with an established
+SUBSCRIBE_NAMESPACE, it MUST respond with SUBSCRIBE_NAMESPACE_ERROR with
+error code `PREFIX_OVERLAP`.  SUBSCRIBE_NAMESPACE and SUBSCRIBE_TRACKS have
+independent overlap spaces (see {{subscribe-tracks}}).
+
+The publisher MUST ensure the subscriber is authorized to perform this
+namespace subscription.
+
+The publisher MUST NOT send NAMESPACE_DONE for a namespace suffix before the
+corresponding NAMESPACE. If a subscriber receives a NAMESPACE_DONE before the
+corresponding NAMESPACE, it MUST close the session with a 'PROTOCOL_VIOLATION'.
+
 A SUBSCRIBE_NAMESPACE or SUBSCRIBE_TRACKS is cancelled as described in
 {{request-cancellation}}, by resetting or sending STOP_SENDING on the stream.
+
+### Namespace Subscription State Management
+
+If the publisher is unable to send NAMESPACE or NAMESPACE_DONE messages in a
+timely manner because the SUBSCRIBE_NAMESPACE response stream is blocked by flow
+control, the publisher MAY reset the SUBSCRIBE_NAMESPACE response stream.  When
+a subscriber receives a stream reset or FIN on a SUBSCRIBE_NAMESPACE response
+stream, it SHOULD treat this as though each active namespace received a
+NAMESPACE_DONE. Subscriptions established via PUBLISH on separate bidi streams
+are not affected by closure of the SUBSCRIBE_NAMESPACE stream.
 
 ## Publishing Namespaces
 
@@ -1244,6 +1278,9 @@ PUBLISH_NAMESPACE indicates to the subscriber that the publisher has tracks
 available in namespaces matching the Track Namespace Prefix it carries (see
 {{namespace-prefix-matching}}). A subscriber MAY send SUBSCRIBE or FETCH for
 tracks in a namespace without having received a PUBLISH_NAMESPACE for it.
+
+The receiver verifies the publisher is authorized to publish tracks under this
+prefix.
 
 If a publisher is the Original Publisher for one or more tracks in a given
 namespace, or is a relay that has received an authorized PUBLISH_NAMESPACE for
@@ -3452,8 +3489,6 @@ REQUEST_UPDATE.
 The publisher sends the PUBLISH_NAMESPACE message as the first message on a
 new bidi stream to advertise that it has tracks available in namespaces
 matching a Track Namespace Prefix.
-The receiver verifies the publisher is authorized to publish tracks under this
-prefix.
 
 ~~~
 PUBLISH_NAMESPACE Message {
@@ -3506,38 +3541,6 @@ SUBSCRIBE_NAMESPACE Message {
 
 * Parameters: The parameters are defined in {{message-params}}.  The only
   parameter that can appear in a SUBSCRIBE_NAMESPACE is AUTHORIZATION_TOKEN.
-
-The publisher will respond with SUBSCRIBE_NAMESPACE_OK or
-SUBSCRIBE_NAMESPACE_ERROR on the response half of the stream. If the subscriber
-receives any message other than a SUBSCRIBE_NAMESPACE_OK or a
-SUBSCRIBE_NAMESPACE_ERROR as the first message on the response half of the
-stream, then it MUST close the session with a PROTOCOL_VIOLATION. If the
-SUBSCRIBE_NAMESPACE is successful, the publisher will send matching NAMESPACE
-messages on the response stream. If it is an error, the stream will be
-immediately closed via FIN. When there are changes to the namespaces being
-published and the subscriber is subscribed to them, the publisher sends the
-corresponding NAMESPACE or NAMESPACE_DONE messages.
-
-Within a session, if a publisher receives a SUBSCRIBE_NAMESPACE with a
-Track Namespace Prefix that shares a common prefix with an established
-SUBSCRIBE_NAMESPACE, it MUST respond with SUBSCRIBE_NAMESPACE_ERROR with
-error code `PREFIX_OVERLAP`.  SUBSCRIBE_NAMESPACE and SUBSCRIBE_TRACKS have
-independent overlap spaces (see {{message-subscribe-tracks}}).
-
-The publisher MUST ensure the subscriber is authorized to perform this
-namespace subscription.
-
-The publisher MUST NOT send NAMESPACE_DONE for a namespace suffix before the
-corresponding NAMESPACE. If a subscriber receives a NAMESPACE_DONE before the
-corresponding NAMESPACE, it MUST close the session with a 'PROTOCOL_VIOLATION'.
-
-If the publisher is unable to send NAMESPACE or NAMESPACE_DONE messages in a
-timely manner because the SUBSCRIBE_NAMESPACE response stream is blocked by flow
-control, the publisher MAY reset the SUBSCRIBE_NAMESPACE response stream.  When
-a subscriber receives a stream reset or FIN on a SUBSCRIBE_NAMESPACE response
-stream, it SHOULD treat this as though each active namespace received a
-NAMESPACE_DONE. Subscriptions established via PUBLISH on separate bidi streams
-are not affected by closure of the SUBSCRIBE_NAMESPACE stream.
 
 ## NAMESPACE {#message-namespace}
 
