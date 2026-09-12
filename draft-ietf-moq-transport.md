@@ -1095,6 +1095,9 @@ SUBSCRIBE_TRACKS requests track subscriptions: the publisher sends PUBLISH
 messages for tracks within matching namespaces, excluding tracks published
 by the subscriber.
 
+A SUBSCRIBE_TRACKS with zero Track Namespace fields indicates the sender is
+interested in all tracks from the receiver.
+
 SUBSCRIBE_TRACKS is not required for a publisher to send PUBLISH messages to
 a subscriber.  It is useful for subscribers that are
 only interested in or authorized to access a subset of available tracks.
@@ -1117,6 +1120,8 @@ overlap spaces (see {{subscribing-to-namespaces}}).
 The publisher MUST ensure the subscriber is authorized to perform this
 namespace subscription.
 
+A SUBSCRIBE_TRACKS is cancelled as described in
+{{request-cancellation}}, by resetting or sending STOP_SENDING on the stream.
 Cancelling SUBSCRIBE_TRACKS does not prohibit original publishers
 from sending further PUBLISH messages, but relays MUST NOT
 send any further PUBLISH messages to a client without knowing the client is
@@ -1208,8 +1213,8 @@ The syntax of these messages is described in {{message}}.
 ## Subscribing to Namespaces {#subscribing-to-namespaces}
 
 If the subscriber is aware of a namespace of interest, it can send
-SUBSCRIBE_NAMESPACE or SUBSCRIBE_TRACKS to publishers/relays it has established
-a session with. The Track Namespace Prefix carried in these messages is
+SUBSCRIBE_NAMESPACE to publishers/relays it has established
+a session with. The Track Namespace Prefix it carries is
 compared against the namespaces known to the receiver using Namespace Prefix
 Matching ({{namespace-prefix-matching}}).
 
@@ -1218,15 +1223,15 @@ NAMESPACE and NAMESPACE_DONE messages for namespaces matching the prefix,
 including echoing back Track Namespaces under the prefix that have been published
 to it.
 
-Either message with zero Track Namespace fields indicates the sender is
-interested in all namespaces or all tracks from the receiver, respectively.
+A SUBSCRIBE_NAMESPACE with zero Track Namespace fields indicates the sender is
+interested in all namespaces from the receiver.
 
 By sending SUBSCRIBE_NAMESPACE, the subscriber indicates that it trusts the
 relay to be authoritative for namespaces matching the requested prefix.
 NAMESPACE messages received on the SUBSCRIBE_NAMESPACE response stream inherit
 this trust and do not independently carry authorization.
 
-The subscriber sends SUBSCRIBE_NAMESPACE or SUBSCRIBE_TRACKS on a new
+The subscriber sends SUBSCRIBE_NAMESPACE on a new
 bidirectional stream and the publisher MUST send a single REQUEST_OK or
 REQUEST_ERROR as the first message on the bidirectional stream in response.
 
@@ -1258,7 +1263,7 @@ The publisher MUST NOT send NAMESPACE_DONE for a namespace suffix before the
 corresponding NAMESPACE. If a subscriber receives a NAMESPACE_DONE before the
 corresponding NAMESPACE, it MUST close the session with a 'PROTOCOL_VIOLATION'.
 
-A SUBSCRIBE_NAMESPACE or SUBSCRIBE_TRACKS is cancelled as described in
+A SUBSCRIBE_NAMESPACE is cancelled as described in
 {{request-cancellation}}, by resetting or sending STOP_SENDING on the stream.
 
 ### Namespace Subscription State Management
