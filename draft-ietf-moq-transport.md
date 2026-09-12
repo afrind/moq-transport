@@ -92,7 +92,7 @@ This document describes the MOQT protocol and is structured as follows:
 * The core concepts and functionality are described first
   * Section 2 {{model}} Object Data Model describes how Objects, Tracks and Namespaces relate
   * Section 3 {{publishing-and-receiving-tracks}} Describes how Objects in Tracks are Published and Retrieved.
-  * Section 4 {{track-discovery}} Describes mechanisms for discovering Namespaces and Tracks
+  * Section 4 {{track-discovery}} Describes mechanisms for discovering Publishers and Namespaces
 
 * Next, the document describes how Objects are transmitted and MOQT Sessions
   * Section 5 {{object-transmission}} Describes ways MOTQ allows a subscriber to influence Object transmission order
@@ -1195,24 +1195,22 @@ SHOULD take the following action:
 
 * For PUBLISH: do not publish the track to that subscriber.
 
-# Namespace Discovery {#track-discovery}
+# Publisher and Namespace Discovery {#track-discovery}
 
-Discovery of MOQT servers is always done out-of-band. Namespace discovery can be
-done in the context of an established MOQT session using SUBSCRIBE_NAMESPACE
-(see {{subscribing-to-namespaces}}).
+Given sufficient out-of-band information, it is valid for a subscriber to
+retrieve tracks from a publisher (including a relay) without any previous MOQT
+messages besides SETUP.  However, MOQT provides in-band messages for a publisher
+to advertise the namespaces it has tracks in, and for a subscriber to enumerate
+the namespaces a publisher knows.
 
-Given sufficient out of band information, it is valid for a subscriber to send a
-SUBSCRIBE or FETCH message to a publisher (including a relay) without any
-previous MOQT messages besides SETUP. However, SUBSCRIBE_NAMESPACE, SUBSCRIBE_TRACKS, PUBLISH and
-PUBLISH_NAMESPACE messages provide an in-band means of discovery of publishers
-for a namespace.
+Discovery of MOQT servers is always done out-of-band: MOQT does not specify how
+an endpoint learns where to establish a session. The discovery described in this
+section takes place within an established session.
 
 While PUBLISH_NAMESPACE indicates to relays how to connect publishers and
 subscribers, it is not a full-fledged routing protocol and does not protect
 against loops and other phenomena. In particular, PUBLISH_NAMESPACE SHOULD NOT
 be used to find paths through richly connected networks of relays.
-
-The syntax of these messages is described in {{message}}.
 
 
 ## Publishing Namespaces
