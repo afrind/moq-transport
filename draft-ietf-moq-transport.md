@@ -769,7 +769,8 @@ be arriving.
 
 The `Next Object` is the Location immediately following `Largest Object`, which
 is `{Largest Object.Group, Largest Object.Object + 1}`, or {0, 0} if no content
-has been delivered yet. The `Next Group` is the first Location of the Group
+has been delivered yet. The `Largest Group` is the Group containing `Largest
+Object`. The `Next Group` is the first Location of the Group
 following `Largest Object`, which is `{Largest Object.Group + 1, 0}`.
 `Next Object` and `Next Group` are Locations that do not necessarily
 refer to an Object that exists.
@@ -1049,6 +1050,28 @@ cancelling a fill fetch stream, by either endpoint, does not affect the
 subscription, which continues to deliver objects using subscribe subgroups and
 datagrams.
 
+## Largest Group Delivery {#largest-group-delivery}
+
+A subscription with the Largest Group Location Filter (Type 0x06, see
+{{location-filter}}) starts at `{Largest Object.Group, 0}`, evaluated when the
+publisher processes the filter or sends PUBLISH.  Objects in the Largest Group
+are subscription-delivered, including those already published or cached.
+
+When a subscription with this filter carries FILL_PARAMETERS, the fill range
+(see {{fill-semantics}}) ends before `{Largest Object.Group, 0}`.
+
+The publisher MUST begin each Subgroup in the Largest Group with the lowest
+Object ID published by the Original Publisher in that Subgroup.  A relay MUST
+NOT deliver an Object in a Subgroup of the Largest Group until every prior
+Object in that Subgroup has been received, is known not to exist, or has been
+retrieved from upstream.  An `Established` upstream subscription that started
+before the Largest Group typically delivers these Objects; otherwise, a relay
+can subscribe upstream with this filter or use FETCH.
+
+Delivery of Objects in the Largest Group is best effort.  A publisher that
+cannot complete a Subgroup it opened in the Largest Group resets it with
+`LARGEST_GROUP_UNAVAILABLE` ({{stream-reset-codes}}).
+
 ## Joining an Ongoing Track {#joining-tracks}
 
 The MOQT Object model is designed with the concept that the beginning of a Group
@@ -1063,7 +1086,9 @@ with the next Object and can begin mid-group.
 To join a Track at the current Group, the subscriber sends a SUBSCRIBE with a
 Location Filter that starts at the Next Object and a FILL_PARAMETERS parameter
 (see {{fill-parameters}}) whose Location filter has StartGroup=1, which fills
-the current Group from its start.
+the current Group from its start.  Alternatively, the Largest Group Location
+Filter delivers the current Group from its start in subgroups and datagrams
+(see {{largest-group-delivery}}).
 
 To join a Track at a past Group, the subscriber sends a SUBSCRIBE with a
 FILL_PARAMETERS parameter whose Location filter selects the intended Groups,
@@ -3899,6 +3924,8 @@ and how they are interpreted.
 * If Location Filter Type is 0x03, StartGroup, StartObject, and EndGroupDelta follow.
 * If Location Filter Type is 0x04, StartGroup, StartObject, EndGroupDelta, and EndObject follow.
 * If Location Filter Type is 0x05, no fields follow and it specifies the Next Object.
+* If Location Filter Type is 0x06, no fields follow and it specifies the Largest
+  Group (see {{largest-group-delivery}}).
 * Any other Location Filter Type is a `PROTOCOL_VIOLATION`.
 
 The table below summarizes the encodings.
@@ -3911,6 +3938,7 @@ The table below summarizes the encodings.
 | 0x03 (Absolute Start, Group End) | absolute: `{StartGroup, StartObject}` | last Object of Group `StartGroup + EndGroupDelta` |
 | 0x04 (Absolute Range) | absolute: `{StartGroup, StartObject}` | `{StartGroup + EndGroupDelta, EndObject}` |
 | 0x05 (Next Object) | `Next Object` | open-ended |
+| 0x06 (Largest Group) | `{Largest Object.Group, 0}` | open-ended |
 {: #location-filter-forms title="Location Filter forms"}
 
 
@@ -3934,6 +3962,11 @@ subscription is open-ended. When they are omitted from a Fetch, the
 EndGroup and EndObject are `Largest Object`.
 
 When EndObject is omitted, the filter includes all objects in the End Group.
+
+Location Filter Type 0x06 is only valid in SUBSCRIBE, PUBLISH and
+REQUEST_UPDATE.  An endpoint that receives it in any other message, or inside
+FILL_PARAMETERS, MUST close the session with a `PROTOCOL_VIOLATION`.  If no
+Objects have been published, its Start Location is the Next Object.
 
 If omitted from FETCH or SUBSCRIBE, the fetch or subscription is
 unfiltered.  If omitted from REQUEST_UPDATE or PUBLISH_STATE_NOTIFY, the
@@ -5215,6 +5248,10 @@ EXPIRED_AUTH_TOKEN (0x7):
 EXCESSIVE_LOAD (0x9):
 : The endpoint is overloaded and is resetting this stream.
 
+LARGEST_GROUP_UNAVAILABLE (0xA):
+: The publisher is unable to complete a Subgroup in the Largest Group (see
+  {{largest-group-delivery}}).
+
 MALFORMED_TRACK (0x12):
 : A relay publisher detected that the track was malformed (see
   {{malformed-tracks}}).
@@ -5874,6 +5911,7 @@ This document does not define any initial entries.
 | UNKNOWN_OBJECT_STATUS | 0x6  | {{stream-reset-codes}}   |
 | EXPIRED_AUTH_TOKEN    | 0x7  | {{stream-reset-codes}}   |
 | EXCESSIVE_LOAD        | 0x9  | {{stream-reset-codes}}   |
+| LARGEST_GROUP_UNAVAILABLE | 0xA | {{stream-reset-codes}} |
 | MALFORMED_TRACK       | 0x12 | {{stream-reset-codes}}   |
 | Reserved for greasing | 0x7f * N + 0x9D | {{grease}} |
 
