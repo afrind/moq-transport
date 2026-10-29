@@ -657,14 +657,12 @@ forwarded back to the endpoint, subject to priority and congestion response
 rules.
 
 An endpoint MAY have multiple concurrent subscriptions to the same Track,
-each identified by a unique Request ID. A publisher MAY assign the same or
-different Track Aliases to these subscriptions.
+each identified by a unique Request ID.
 
 When an Object matches the filters of multiple subscriptions to the same Track,
 the publisher MUST send the Object once for each matching subscription, even
-when those subscriptions share the same Track Alias. Because subscriptions can
-share a Track Alias, the subscriber re-applies each subscription's filter to
-determine which subscription a received Object belongs to. Subscribers SHOULD
+when those subscriptions share the same Track Alias ({{custom-track-alias}}).
+Subscribers SHOULD
 avoid overlapping filters across subscriptions to the same Track, as they are
 responsible for deduplicating any resulting duplicate Objects.
 
@@ -715,9 +713,33 @@ end with an error.
 ### Track Alias {#track-alias}
 
 To optimize wire efficiency, Subgroups and Datagrams refer to a track by a
-numeric identifier, rather than the Full Track Name.  Track Alias is chosen by
-the publisher and included in SUBSCRIBE_OK ({{message-subscribe-ok}}) or PUBLISH
+numeric identifier, rather than the Full Track Name.  The publisher includes
+the Track Alias in SUBSCRIBE_OK ({{message-subscribe-ok}}) or PUBLISH
 ({{message-publish}}).
+
+Unless CUSTOM_TRACK_ALIAS has been negotiated ({{custom-track-alias}}), the
+Track Alias MUST be the Request ID of the SUBSCRIBE or PUBLISH that initiated
+the subscription. If a subscriber receives a PUBLISH or SUBSCRIBE_OK with any
+other Track Alias, it MUST close the session with `INVALID_TRACK_ALIAS`.
+Request IDs are unique within a session, so each subscription has its own
+Track Alias, and a subscriber can associate Objects with a SUBSCRIBE before
+SUBSCRIBE_OK arrives.
+
+Objects can arrive after a subscription has been cancelled.  Subscribers SHOULD
+retain sufficient state to quickly discard these unwanted Objects, rather than
+treating them as belonging to an unknown Track Alias.
+
+#### Custom Track Aliases {#custom-track-alias}
+
+When both endpoints include the CUSTOM_TRACK_ALIAS Setup Option
+({{custom-track-alias-option}}) in SETUP, a publisher MAY choose a Track Alias
+other than the Request ID, subject to the rules in this section. For example, a
+relay can use the same Track Alias for a Track on every session, so that it
+does not rewrite data stream headers for each subscriber.
+
+An endpoint does not know whether CUSTOM_TRACK_ALIAS is negotiated until it
+receives the peer's SETUP, so it uses the Request ID as the Track Alias in any
+PUBLISH or SUBSCRIBE_OK it sends before then, including in 0-RTT.
 
 The same Track Alias MUST NOT be used by a publisher to refer to two different
 Tracks simultaneously in the same session. If a subscriber receives a
@@ -725,11 +747,10 @@ PUBLISH or SUBSCRIBE_OK that uses the same Track Alias as a different Track
 with an `Established` subscription, it MUST close the session with error
 `DUPLICATE_TRACK_ALIAS`.
 
-Objects can be sent before the Subscriber knows the Track Alias, requiring
-buffering Objects with an unknown Track Alias. If a Track Alias
-is used for two concurrent subscriptions to the same Track, an
-Object that arrives with the Track Alias could be for either
-Subscription. Reusing the same Track Alias for concurrent
+A publisher MAY use the same Track Alias for concurrent subscriptions to the
+same Track. The subscriber re-applies each subscription's filter to determine
+which subscription a received Object belongs to.
+Reusing the same Track Alias for concurrent
 subscriptions to the same Track can lead to missed delivery
 if objects for the new subscription arrive
 before the control message establishing the shared Alias.
@@ -741,14 +762,10 @@ Objects are from, Publishers SHOULD NOT reuse a Track Alias for different Tracks
 within a session, unless it is certain the prior Subscription has been
 completely closed and no Objects are scheduled to be sent or in flight.
 
-Objects can arrive after a subscription has been cancelled.  Subscribers SHOULD
-retain sufficient state to quickly discard these unwanted Objects, rather than
-treating them as belonging to an unknown Track Alias.
-
 #### Unknown Track Alias {#unknown-track-alias}
 
 When an endpoint receives a datagram or a new stream with a Track Alias that
-is not yet associated with an `Established` subscription, it MAY drop the
+it cannot yet associate with a subscription, it MAY drop the
 data or buffer it briefly to handle reordering with the control message that
 establishes the Track Alias. For streams, the endpoint MAY withhold stream
 flow control beyond the stream header until the Track Alias has been
@@ -2949,6 +2966,13 @@ If an endpoint receives a REQUEST_UPDATE on a stream that already has
 MAX_REQUEST_UPDATES outstanding REQUEST_UPDATEs, it MUST close the session
 with `TOO_MANY_REQUEST_UPDATES`.
 
+### CUSTOM_TRACK_ALIAS {#custom-track-alias-option}
+
+The CUSTOM_TRACK_ALIAS option (Option Type 0x09) indicates that the sender
+supports Track Aliases that differ from the Request ID (see
+{{custom-track-alias}}). The Value has a Length of 0; if an endpoint receives
+a non-zero Length, it MUST close the session with `MALFORMED_KEY_VALUE`.
+
 
 ## GOAWAY {#message-goaway}
 
@@ -5146,6 +5170,10 @@ INVALID_PARAMETER (0x305):
 CLOSED_CONTROL_STREAM (0x306):
 : The peer closed the control stream ({{session-init}}).
 
+INVALID_TRACK_ALIAS (0x307):
+: The endpoint received a Track Alias that differs from the Request ID
+  without CUSTOM_TRACK_ALIAS negotiated. See {{track-alias}}.
+
 DELTA_ENCODING_OVERFLOW (0x400):
 : A value decoded from a delta encoding is less than 0 or greater than
   2^64 - 1.
@@ -5759,6 +5787,7 @@ This registry is initially empty.
 | 0x06 | MAX_FILTER_RANGES | {{max-filter-ranges}} |
 | 0x07 | MOQT_IMPLEMENTATION | {{moqt-implementation}} |
 | 0x08 | MAX_REQUEST_UPDATES | {{max-request-updates}} |
+| 0x09 | CUSTOM_TRACK_ALIAS | {{custom-track-alias-option}} |
 | 0x7f * N + 0x9D | Reserved for greasing | {{grease}} |
 
 Endpoints MUST ignore unknown Setup Options as specified in
@@ -5938,6 +5967,7 @@ This document does not define any initial entries.
 | ROLE_VIOLATION             | 0x304 | {{session-termination-codes}} |
 | INVALID_PARAMETER          | 0x305 | {{session-termination-codes}} |
 | CLOSED_CONTROL_STREAM      | 0x306 | {{session-termination-codes}} |
+| INVALID_TRACK_ALIAS        | 0x307 | {{session-termination-codes}} |
 | DELTA_ENCODING_OVERFLOW    | 0x400 | {{session-termination-codes}} |
 | FIELD_LENGTH_EXCEEDED      | 0x401 | {{session-termination-codes}} |
 | Reserved for greasing      | 0x7f * N + 0x9D | {{grease}} |
